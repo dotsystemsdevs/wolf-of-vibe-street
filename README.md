@@ -7,7 +7,7 @@
 **A disciplined, emotionless, paper-first AI/agent crypto trading bot.**
 Built in one night, vibe-coded together with [Claude Code](https://claude.com/claude-code).
 
-[![CI](https://github.com/dotsystemsdevs/Wolf-Of-Vibe-Street/actions/workflows/ci.yml/badge.svg)](https://github.com/dotsystemsdevs/Wolf-Of-Vibe-Street/actions/workflows/ci.yml)
+[![CI](https://github.com/dotsystemsdevs/wolf-of-vibe-street/actions/workflows/ci.yml/badge.svg)](https://github.com/dotsystemsdevs/wolf-of-vibe-street/actions/workflows/ci.yml)
 [![tests](https://img.shields.io/badge/tests-190%20passing-brightgreen)]()
 [![python](https://img.shields.io/badge/python-3.12%2B-blue)]()
 
@@ -125,8 +125,8 @@ Read `CLAUDE.md` for operating rules, `memory-bank/@architecture.md` for invaria
 ## Setup (first time)
 
 ```bash
-git clone https://github.com/dotsystemsdevs/Wolf-Of-Vibe-Street.git
-cd Wolf-Of-Vibe-Street
+git clone https://github.com/dotsystemsdevs/wolf-of-vibe-street.git
+cd wolf-of-vibe-street
 uv sync
 cp .env.example .env  # fill in TELEGRAM_BOT_TOKEN if you want alerts
 uv run pytest
