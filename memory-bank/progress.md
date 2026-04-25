@@ -5,6 +5,33 @@
 
 ---
 
+## 2026-04-25 (session 24) — Loop control from the dashboard
+
+User requirement: "ingen terminal någonsin, allt allt allt i dashboarden". Done.
+
+- `tools/loop_control.py` — `status()`, `start(*, extra_env, use_caffeinate)`, `stop()`, `tail_log()`. PID persisted to `data/state/loop.pid`; status auto-cleans stale PID files via `os.kill(pid, 0)`. Subprocess detached with `start_new_session=True` so closing the dashboard doesn't kill the loop. `caffeinate -di` wrapped on macOS so the Mac stays awake. `PYTHONUNBUFFERED=1` so the log tail updates in real time.
+- Dashboard sidebar **Live loop** section: `Running · PID … · uptime …` (green) with "Stop loop" button OR "Loop not running" (yellow) with "Start loop" (primary green) button. Spinner during state transitions. Log path shown.
+- Overview tab gets a **Loop output (last 30 lines)** panel — tails `data/state/loop.log`. Auto-refreshes with the rest of the page (10 s).
+- 8 new tests for `loop_control` (no real subprocess — uses our own PID for "alive", a fake PID for dead-cleanup, malformed pid file, log tailing). 171/171 total.
+- Live-verified: start/stop cycles cleanly. SIGTERM → wait 5 s → SIGKILL fallback. Process-group kill (caffeinate + uv + python) with direct-PID fallback if EPERM.
+
+**The user can now do everything in the browser:**
+- Start the bot: sidebar → "Start loop"
+- Watch it work: Overview → Loop output + decision-log live log
+- Pause without killing: sidebar → "Enable kill switch"
+- Run multi-symbol backtest: 🔬 Backtest compare tab → "Run comparison"
+- Stop the bot: sidebar → "Stop loop"
+
+The shell script `dev-start.sh` is now a *bootstrapper* (start dashboard); the loop is launched and managed from inside the browser.
+
+**Next:** Either (a) start the actual paper-soak (now genuinely one-click), or (b) S-25 expectancy/auto-blacklist.
+
+**Blockers:** none.
+
+**New lessons:** none.
+
+---
+
 ## 2026-04-25 (session 23) — Dashboard tabs + compare + one-command launcher
 
 User wanted everything in one place + no command memorization. Three concrete additions:

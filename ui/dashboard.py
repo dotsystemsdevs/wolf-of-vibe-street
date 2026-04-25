@@ -27,6 +27,7 @@ from backtest.compare import (  # noqa: E402
 )
 from memory.decision_log import DecisionLog  # noqa: E402
 from risk.caps import DEFAULT_KILL_SWITCH_PATH, kill_switch_active  # noqa: E402
+from tools import loop_control  # noqa: E402
 from ui.views import (  # noqa: E402
     equity_curve,
     event_counts,
@@ -449,24 +450,62 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
                         unsafe_allow_html=True,
                     )
 
+        st.markdown(
+            '<div class="section-title">Loop output (last 30 lines)</div>',
+            unsafe_allow_html=True,
+        )
+        loop_log_text = (
+            loop_control.tail_log(lines=30) or "(no loop log yet — start the loop from the sidebar)"
+        )
+        st.code(loop_log_text, language="bash")
+
     with tab_compare:
         _render_compare_tab()
 
     with st.sidebar:
-        st.subheader("Controls")
+        st.subheader("Live loop")
+        loop_status = loop_control.status()
+        if loop_status.running:
+            uptime_s = (
+                int((pd.Timestamp.utcnow().timestamp() * 1000 - loop_status.started_at_ms) / 1000)
+                if loop_status.started_at_ms
+                else 0
+            )
+            mins, secs = divmod(uptime_s, 60)
+            hours, mins = divmod(mins, 60)
+            st.success(
+                f"Running · PID {loop_status.pid} · uptime {hours:d}h {mins:02d}m {secs:02d}s"
+            )
+            if st.button("Stop loop", type="secondary", width="stretch"):
+                with st.spinner("Stopping..."):
+                    loop_control.stop()
+                st.rerun()
+        else:
+            st.warning("Loop not running")
+            if st.button("Start loop", type="primary", width="stretch"):
+                with st.spinner("Starting (caffeinate + uv)..."):
+                    new_status = loop_control.start()
+                if not new_status.running:
+                    st.error("Loop failed to start — check log below.")
+                st.rerun()
+        st.caption(f"Logs: `{loop_status.log_path}`")
+
+        st.divider()
+        st.subheader("Kill switch")
         if kill_switch_active(kill_switch_path):
-            st.error("KILL SWITCH ACTIVE")
-            if st.button("Disable kill switch", type="primary"):
+            st.error("ACTIVE — bot is paused")
+            if st.button("Disable kill switch", type="primary", width="stretch"):
                 if kill_switch_path.exists():
                     kill_switch_path.unlink()
                 st.rerun()
         else:
-            st.success("Kill switch OFF")
-            if st.button("Enable kill switch", type="secondary"):
+            st.success("OFF — bot may trade")
+            if st.button("Enable kill switch", type="secondary", width="stretch"):
                 kill_switch_path.parent.mkdir(parents=True, exist_ok=True)
                 kill_switch_path.touch()
                 st.rerun()
         st.caption(f"File: `{kill_switch_path}`")
+
         st.divider()
         st.subheader("Event counts")
         for k, v in sorted(event_counts(rows).items()):
@@ -476,7 +515,7 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
                 unsafe_allow_html=True,
             )
         st.divider()
-        if st.button("Refresh now"):
+        if st.button("Refresh now", width="stretch"):
             st.rerun()
         st.caption(f"Log: `{log_path}`  ·  Initial cash: ${initial_cash:,.0f}")
 
