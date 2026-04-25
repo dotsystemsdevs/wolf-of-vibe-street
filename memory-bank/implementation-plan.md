@@ -22,9 +22,9 @@ Goal: end-to-end pipeline running paper trades on one symbol with one trivial ru
 - [x] Pick package manager (`uv` for Python). Initialize project (flat layout per `CLAUDE.md` §5, not src — top-level mappar = Python-modul).
 - [x] Create folder skeleton per `CLAUDE.md` §5.
 - [x] Wire `tests/` with pytest (or vitest if TS). CI on push. *(pytest + ruff lint + ruff format check on push & PR via `.github/workflows/ci.yml`, matrix: Python 3.12 + 3.13.)*
-- [ ] **Data layer:**
+- [x] **Data layer:**
   - [x] CCXT client wrapper for one exchange (Binance default). *(`data/binance.py` — OHLCV REST fetch with validation + injectable client.)*
-  - [ ] WebSocket bar ingestion → Parquet.
+  - [x] WebSocket bar ingestion → Parquet. *(REST polling instead — `workers/live_loop.py` polls every `poll_interval_s` and detects new closed bars via `closeTime <= now`. Functionally equivalent for 1h bars; no async machinery.)*
   - [x] Backfill historical bars (5 years if available). *(`data/backfill.py` paginates; `data/store.py` writes idempotent Parquet. Verified 30d×1h BTC/USDT round-trip; 5y pull is now a one-shot script away.)*
 - [x] **Features layer:**
   - [x] `features/compute.py` — single source of truth, importable from train/backtest/live (I-2).

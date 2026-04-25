@@ -28,6 +28,7 @@ traderbot/
 ├── execution/ccxt_paper.py # PaperBroker — sim fills @ mark + slippage; coid-keyed idempotency
 ├── execution/runner.py     # Executor.on_bar(signal, bar) wires risk caps + broker + log
 ├── memory/decision_log.py  # SQLite append-only log (I-6); UPDATE/DELETE blocked by triggers
+├── workers/live_loop.py    # polling-driven LiveLoop.tick() / .run() — bridges replay → live
 ├── backtest/engine.py      # walk-forward, single-position, cost-aware sim
 ├── backtest/metrics.py     # sharpe, sortino, max_dd, win_rate, BE_WR (S-50)
 ├── data/{state,decision_log,bars,cache}/  # gitignored runtime dirs
@@ -55,6 +56,7 @@ End-to-end pipe (Phase 1 vertical slice):
 - Decision log (`memory/decision_log.py`): writes one row per `signal`, `order_placed`, `order_filled`, `risk_block`, `order_rejected`, `reconcile_drift`. Triggers reject UPDATE/DELETE so audit trail is permanent (I-6). Lives in `data/decision_log/` (no-touch list).
 - Daily HW resets at UTC dawn (`bar.timestamp_ms // 86_400_000`); weekly HW at ISO-week rollover (`isocalendar().week`). Both ratchet upward within their period. Tested.
 - **Executor and backtest engine produce equivalent P&L** when caps don't bite — verified on 30 days BTC: backtest −1.82 %, executor −1.91 % (gap is commission/slippage rounding). This consistency is the contract: simulation matches the live code path.
+- `workers/live_loop.py::LiveLoop` is the live driver. `tick()` polls Binance, persists any newly-closed bars to Parquet, recomputes signals on the full history, and feeds each new bar to `Executor.on_bar`. `run(max_iterations=None)` is the forever loop with kill-switch pause. Every tick is testable with a fake client + fake clock — no network needed for unit tests.
 
 ---
 

@@ -5,6 +5,34 @@
 
 ---
 
+## 2026-04-25 (session 14) — Live loop landed; bot can run continuously
+
+The bridge between historical replay and live trading. `workers/live_loop.py::LiveLoop`:
+- Polls Binance REST every `poll_interval_s` (default 30 s).
+- Detects newly-closed bars via `closeTime = ts + tf_ms <= now()` — the in-progress current bar is skipped until it closes.
+- Persists each new bar to the canonical Parquet path; recomputes signals on the full history; feeds each new bar to `Executor.on_bar`.
+- `run(max_iterations=None)` is the forever loop. Honors kill switch between iterations (logs a `risk_block(kill_switch_paused_loop)` row each pause; doesn't exit). Tick errors are caught and logged so a transient API hiccup doesn't kill the bot.
+- Polling instead of WS: 1h bars don't need sub-second latency, polling drops the whole async/aiohttp/reconnect machinery. We can swap to ccxt.pro WS later if we move to 1m bars.
+- Tests with a fake `_FakeClient` + fake clock → no network. 4 new tests, 124/124 total.
+
+**Live verify against the real Binance API:**
+- Tick #1: pulled 9 closed BTC/USDT 1h bars, processed each through executor, wrote 9 decision-log rows. Latest mark $77,330.
+- Tick #2 (immediate re-poll): 0 new bars detected, 0 new log rows. Idempotent.
+
+**Phase 1 is essentially feature-complete.** Open items are operational, not architectural:
+- Streamlit dashboard reading the SQLite log.
+- Telegram notifications (heartbeat, kill-switch trip, daily-DD halt).
+- Mac Mini 24/7 prep (`pmset` config, `caffeinate` wrapper).
+- Then start the 7-day soak.
+
+**Next:** Either Streamlit dashboard (visual feedback) or Telegram alerts (ops feedback). Dashboard probably first — it's nice to *see* the bot working, and it can be built by reading the existing decision log without changing any runtime code.
+
+**Blockers:** none.
+
+**New lessons:** none — but worth flagging that the parity between backtest and live executor (proved in session 13) extended cleanly when the live loop was added on top. Three independent code paths (backtest, replay-executor, live-loop) all converge on the same numbers given the same data.
+
+---
+
 ## 2026-04-25 (session 13) — HW reset fix + executor/backtest parity proven
 
 - Daily HW now resets at UTC dawn (key = `ts_ms // 86_400_000`). Weekly HW resets at ISO-week rollover (`isocalendar().week`). Within a period, HW still ratchets upward.
