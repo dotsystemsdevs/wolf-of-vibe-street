@@ -29,6 +29,8 @@ traderbot/
 ├── execution/runner.py     # Executor.on_bar(signal, bar) wires risk caps + broker + log
 ├── memory/decision_log.py  # SQLite append-only log (I-6); UPDATE/DELETE blocked by triggers
 ├── workers/live_loop.py    # polling-driven LiveLoop.tick() / .run() — bridges replay → live
+├── ui/views.py             # pure summary functions (testable, no Streamlit dep)
+├── ui/dashboard.py         # Streamlit page — `uv run streamlit run ui/dashboard.py`
 ├── backtest/engine.py      # walk-forward, single-position, cost-aware sim
 ├── backtest/metrics.py     # sharpe, sortino, max_dd, win_rate, BE_WR (S-50)
 ├── data/{state,decision_log,bars,cache}/  # gitignored runtime dirs
@@ -57,6 +59,8 @@ End-to-end pipe (Phase 1 vertical slice):
 - Daily HW resets at UTC dawn (`bar.timestamp_ms // 86_400_000`); weekly HW at ISO-week rollover (`isocalendar().week`). Both ratchet upward within their period. Tested.
 - **Executor and backtest engine produce equivalent P&L** when caps don't bite — verified on 30 days BTC: backtest −1.82 %, executor −1.91 % (gap is commission/slippage rounding). This consistency is the contract: simulation matches the live code path.
 - `workers/live_loop.py::LiveLoop` is the live driver. `tick()` polls Binance, persists any newly-closed bars to Parquet, recomputes signals on the full history, and feeds each new bar to `Executor.on_bar`. `run(max_iterations=None)` is the forever loop with kill-switch pause. Every tick is testable with a fake client + fake clock — no network needed for unit tests.
+- `ui/views.py` are pure summary functions over decision-log rows (event_counts, fills_dataframe, trades_dataframe, summary). Tested. The Streamlit `ui/dashboard.py` is a thin renderer on top — no business logic. Override paths via env: `TRADERBOT_LOG_PATH`, `TRADERBOT_INITIAL_CASH`, `TRADERBOT_KILL_SWITCH_PATH`.
+- **Known dashboard gap**: `trades_dataframe` computes pnl as `(exit - entry) * qty` — gross of fees. Fees are reflected in cash but aren't in `order_filled` rows (no `fee` column). Net P&L therefore reads slightly optimistic in the dashboard vs the actual cash balance. Fix path: add a `fee` column or use metadata_json. Acceptable cosmetic gap for now (~0.2 % on the 30-day BTC test).
 
 ---
 

@@ -50,8 +50,8 @@ Goal: end-to-end pipeline running paper trades on one symbol with one trivial ru
   - [ ] Heartbeat from each worker.
   - [ ] WS-disconnect detection → pause new orders.
   - [ ] Telegram bot for alerts.
-- [ ] **Dashboard:**
-  - [ ] Streamlit page: positions, P&L, recent signals, recent decisions, kill-switch status.
+- [x] **Dashboard:**
+  - [x] Streamlit page: positions, P&L, recent signals, recent decisions, kill-switch status. *(`ui/dashboard.py` reads SQLite log; `ui/views.py` is the testable summary layer. Run with `uv run streamlit run ui/dashboard.py`. Known gross-vs-net P&L gap noted in `@architecture.md`.)*
 - [ ] **Mac Mini 24/7 prep** (D-18) — before starting soak: `sudo pmset -a sleep 0 disksleep 0 powernap 0 autorestart 1 womp 1`, disable display sleep in Settings, ensure Tailscale (D-17) reachable, verify auto-login or `caffeinate` wrapper for the executor process.
 - [ ] **Run paper for 7 days continuous.** Daily review of decision log. Note any divergence.
 - [ ] **Phase 1 retro:** what surprised us? Add P-** / S-** entries to `experiences.md`.

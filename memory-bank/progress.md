@@ -5,6 +5,28 @@
 
 ---
 
+## 2026-04-25 (session 15) — Streamlit dashboard
+
+- `uv add streamlit` (1.56.0).
+- `ui/views.py` — pure summary functions: `event_counts`, `fills_dataframe`, `trades_dataframe` (pairs buys with subsequent sells), `summary` (rows total, trades, wins/losses, win rate, realized P&L, blocks by reason). No Streamlit imports here — fully unit-testable.
+- `ui/dashboard.py` — Streamlit page on top of `views`. Sidebar holds the **kill-switch toggle** (creates/deletes the sentinel file) and a manual refresh button. Body shows P&L metrics, event counts, risk blocks, recent trades, recent fills. Reads `TRADERBOT_LOG_PATH` env (default `data/decision_log/traderbot.db`).
+- 7 new tests in `tests/test_views.py`. 131/131 total. Ruff clean.
+- Replayed the 30-day BTC strategy into the canonical `data/decision_log/traderbot.db` (777 rows). Verified summary numbers match the live executor run from session 13: 19 trades, 26.3 % WR. Dashboard imports cleanly under `uv run streamlit run ui/dashboard.py`.
+
+**Known cosmetic gap:** `trades_dataframe.pnl` is gross of fees (the executor applies fees to cash, but `order_filled` rows don't carry a `fee` column). Dashboard P&L reads slightly optimistic vs actual cash. ~0.2 % on the 30-day test. Fix path = add `fee` to the schema or stash it in `metadata_json`. Deferred.
+
+**Next options:**
+- (a) Telegram bot (heartbeat + kill-switch + DD-halt alerts) so a paper-soak failing silently is impossible.
+- (b) Mac Mini 24/7 ops prep — `pmset`, `caffeinate` wrapper, then **start the actual 7-day soak**.
+
+Both are small. Telegram first probably — without it, you have to remember to refresh the dashboard. With it, the bot pings you when something interesting happens.
+
+**Blockers:** none.
+
+**New lessons:** none.
+
+---
+
 ## 2026-04-25 (session 14) — Live loop landed; bot can run continuously
 
 The bridge between historical replay and live trading. `workers/live_loop.py::LiveLoop`:
