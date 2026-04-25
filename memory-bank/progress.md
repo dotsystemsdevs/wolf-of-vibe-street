@@ -5,6 +5,24 @@
 
 ---
 
+## 2026-04-25 (session 26) — Telegram setup wizard (no terminal needed)
+
+User starting overnight soak wanted alerts on phone but didn't want to edit `.env` manually. Wizard now lives in the dashboard sidebar.
+
+- `tools/env_config.py` — narrow `.env` reader/writer. `read_env()` parses `KEY=value` (strips quotes, ignores comments + blanks). `update_env()` rewrites in place — existing keys' lines preserved (only the value changes), unrelated lines / comments / blanks untouched, new keys appended at end. 10 tests pin every path including "don't lose ANTHROPIC_API_KEY when setting TELEGRAM_BOT_TOKEN". 190/190 total.
+- Dashboard sidebar gets a `📱 Telegram alerts` expander: token field (password-masked), chat ID field, "Send test" button (calls `TelegramNotifier` immediately, no save), "Save to .env" (primary). Status badge at top: ✓ Configured / ⚠ Not configured. Save success message tells the user to stop+start the loop to pick up the new values.
+- Reset button + Telegram wizard both written without touching the running loop's code path. Soak in progress was unaffected.
+
+**The user can now configure Telegram, send a test ping, and verify it works — entirely from the browser.** Heartbeats land on phone the next time the loop starts.
+
+**Next:** Wait for tomorrow's soak result. If green: Phase 2 work (S-25, ML, regime). If red: debug whatever broke.
+
+**Blockers:** none.
+
+**New lessons:** none.
+
+---
+
 ## 2026-04-25 (session 25) — Soak health panel for the morning glance
 
 User wants to start a short paper-soak (overnight, check at 09:00) instead of waiting 7 days. Built the morning-check tool.

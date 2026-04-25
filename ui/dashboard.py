@@ -27,7 +27,8 @@ from backtest.compare import (  # noqa: E402
 )
 from memory.decision_log import DecisionLog  # noqa: E402
 from risk.caps import DEFAULT_KILL_SWITCH_PATH, kill_switch_active  # noqa: E402
-from tools import loop_control  # noqa: E402
+from tools import env_config, loop_control  # noqa: E402
+from tools.notifier import TelegramNotifier  # noqa: E402
 from ui.views import (  # noqa: E402
     equity_curve,
     event_counts,
@@ -572,6 +573,42 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
                 kill_switch_path.touch()
                 st.rerun()
         st.caption(f"File: `{kill_switch_path}`")
+
+        st.divider()
+        with st.expander("📱 Telegram alerts", expanded=False):
+            env = env_config.read_env()
+            current_token = env.get("TELEGRAM_BOT_TOKEN", "")
+            current_chat = env.get("TELEGRAM_CHAT_ID", "")
+            configured = bool(current_token and current_chat)
+            if configured:
+                st.success("Configured ✓")
+            else:
+                st.warning("Not configured")
+            st.caption(
+                "How to set up: write to @BotFather on Telegram → /newbot → copy the token. "
+                "Get your chat ID by writing to @userinfobot. Paste both below."
+            )
+            token_in = st.text_input(
+                "Bot token", value=current_token, type="password", key="tg_token"
+            )
+            chat_in = st.text_input("Chat ID", value=current_chat, key="tg_chat")
+            both = bool(token_in and chat_in)
+
+            cb1, cb2 = st.columns(2)
+            if cb1.button("Send test", disabled=not both, width="stretch"):
+                try:
+                    notifier = TelegramNotifier(token=token_in, chat_id=chat_in)
+                    notifier.notify(
+                        "INFO",
+                        "Test from traderbot",
+                        "If you see this in Telegram, alerts are wired correctly.",
+                    )
+                    st.success("Test message sent — check your Telegram.")
+                except Exception as e:
+                    st.error(f"Failed: {type(e).__name__}: {e}")
+            if cb2.button("Save to .env", disabled=not both, type="primary", width="stretch"):
+                env_config.update_env({"TELEGRAM_BOT_TOKEN": token_in, "TELEGRAM_CHAT_ID": chat_in})
+                st.success("Saved. Stop + start the loop to pick up the new values.")
 
         st.divider()
         st.subheader("Event counts")
