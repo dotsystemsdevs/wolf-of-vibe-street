@@ -5,6 +5,29 @@
 
 ---
 
+## 2026-04-25 (session 18) — CLI entry: `python -m workers.live_loop`
+
+- `workers/live_loop.py` gets `build_from_env()` + `main()`. All config via `TRADERBOT_*` env vars (symbol, timeframe, initial cash, risk_pct, poll interval, slippage/commission, heartbeat). Defaults work out of the box for BTC/USDT 1h paper.
+- Banner on startup prints config + reminders ("Mode: PAPER", "Stop: Ctrl+C", "Pause: touch data/state/KILL_SWITCH").
+- `KeyboardInterrupt` caught for clean shutdown — prints log path + dashboard launch command.
+- `TRADERBOT_MAX_ITERATIONS` lets us bound runs in tests / smoke-checks.
+- 2 new tests for env-driven construction (defaults + overrides). 141/141 total.
+- Live verify: ran `TRADERBOT_MAX_ITERATIONS=1 python -m workers.live_loop` against real Binance — pulled 9 closed bars, wrote 9 signal rows, exited cleanly.
+- README updated with the three runnable commands (live_loop, dashboard, report) + env table.
+
+**Bot now starts with one command.** All Phase 1 architectural + ops items are complete except:
+- Mac Mini 24/7 power config (`pmset` + `caffeinate`).
+- User: create Telegram bot via @BotFather + paste token/chat_id into `.env`.
+- Then start the actual 7-day soak: `caffeinate -di uv run python -m workers.live_loop`.
+
+**Next:** Either we add the small `pmset`-runbook helper / launchd plist (so the soak survives reboots), or we just call this Phase 1 done and move to Phase 2 (ML/LLM layer on top).
+
+**Blockers:** none.
+
+**New lessons:** none.
+
+---
+
 ## 2026-04-25 (session 17) — Text report + bar-time fill timestamps
 
 User asked when they'd actually see something. Two pieces:

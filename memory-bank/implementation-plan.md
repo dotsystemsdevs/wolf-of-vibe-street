@@ -52,6 +52,7 @@ Goal: end-to-end pipeline running paper trades on one symbol with one trivial ru
   - [x] Telegram bot for alerts. *(`tools/notifier.py`. Edge-triggered on kill switch, fires on tick errors, hourly heartbeat. Silent no-op if creds missing.)*
 - [x] **Dashboard:**
   - [x] Streamlit page: positions, P&L, recent signals, recent decisions, kill-switch status. *(`ui/dashboard.py` reads SQLite log; `ui/views.py` is the testable summary layer. Run with `uv run streamlit run ui/dashboard.py`. Known gross-vs-net P&L gap noted in `@architecture.md`.)*
+- [x] **CLI entry** for the executor: `uv run python -m workers.live_loop` reads env vars, wires the loop, runs forever. `Ctrl+C` exits cleanly.
 - [ ] **Mac Mini 24/7 prep** (D-18) — before starting soak: `sudo pmset -a sleep 0 disksleep 0 powernap 0 autorestart 1 womp 1`, disable display sleep in Settings, ensure Tailscale (D-17) reachable, verify auto-login or `caffeinate` wrapper for the executor process.
 - [ ] **Run paper for 7 days continuous.** Daily review of decision log. Note any divergence.
 - [ ] **Phase 1 retro:** what surprised us? Add P-** / S-** entries to `experiences.md`.
