@@ -49,90 +49,116 @@ GOLD = "#fbbf24"
 
 CSS = """
 <style>
+/* Institutional dark — single amber accent, mono numbers, no decoration. */
 :root {
-  --green: #22c55e;
-  --red: #ef4444;
-  --grey: #6b7280;
-  --gold: #fbbf24;
-  --orange: #fb923c;
-  --bg: #0a0e15;
-  --card: #0f1623;
-  --border: #1f2937;
-  --text: #e5e7eb;
+  --bg:        #0a0a0a;
+  --card:      #111111;
+  --border:    #1f1f1f;
+  --border-2:  #2a2a2a;
+  --text:      #e8e8e8;
+  --text-2:    #a3a3a3;
+  --text-3:    #737373;
+  --accent:    #d97706;   /* amber, used sparingly */
+  --green:     #16a34a;
+  --red:       #dc2626;
 }
 
 .stApp { background: var(--bg) !important; }
+header[data-testid="stHeader"] { background: transparent; }
+.stDeployButton, footer { display: none; }
+.block-container { padding-top: 2rem; padding-bottom: 1rem; max-width: 100%; }
 
-/* --- Brand title (Wolf Of Wall Street energy) --- */
+/* --- Brand --- */
 .brand {
   font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
-  font-size: 22px; font-weight: 900; letter-spacing: 0.02em;
-  color: var(--text);
+  font-size: 13px; font-weight: 700; letter-spacing: 0.18em;
+  color: var(--text); text-transform: uppercase;
 }
-.brand .accent { color: var(--gold); }
-.brand .sub { color: var(--grey); font-size: 12px; font-weight: 500;
-  letter-spacing: 0.18em; margin-left: 12px; text-transform: uppercase; }
+.brand .sep { color: var(--text-3); margin: 0 8px; font-weight: 400; }
+.brand .sub { color: var(--text-3); font-size: 11px; font-weight: 500;
+  letter-spacing: 0.14em; margin-left: 10px; }
 
-/* --- KPI cards: gold top-border, mono numbers --- */
+/* --- Mode tag (PAPER / LIVE) — sober, no glow, no pulse --- */
+.mode {
+  display: inline-block; margin-left: 12px;
+  padding: 2px 8px;
+  font-family: "SF Mono", Menlo, monospace;
+  font-size: 10px; font-weight: 700; letter-spacing: 0.14em;
+  border: 1px solid;
+  vertical-align: 1px;
+}
+.mode.paper { color: var(--text-2); border-color: var(--border-2); }
+.mode.live  { color: #fff; background: var(--red); border-color: var(--red); }
+
+/* --- Status text (RUN / IDLE / OFF) — text, not dot --- */
+.status {
+  font-family: "SF Mono", Menlo, monospace;
+  font-size: 11px; letter-spacing: 0.10em;
+  color: var(--text-2);
+}
+.status .v { color: var(--text); font-weight: 600; }
+.status .v.run  { color: var(--green); }
+.status .v.idle { color: var(--accent); }
+.status .v.off  { color: var(--red); }
+
+/* --- KPI cards — flat, dense, mono --- */
 .kpi {
   background: var(--card);
   border: 1px solid var(--border);
-  border-top: 2px solid var(--accent, var(--orange));
-  border-radius: 4px;
-  padding: 14px 18px;
+  padding: 12px 14px;
   height: 100%;
 }
 .kpi .label {
-  font-size: 10px; color: #9ca3af;
-  text-transform: uppercase; letter-spacing: 0.14em;
-  margin-bottom: 8px;
+  font-family: "Inter", sans-serif;
+  font-size: 9px; color: var(--text-3);
+  text-transform: uppercase; letter-spacing: 0.16em;
+  margin-bottom: 10px;
 }
 .kpi .value {
   font-family: "SF Mono", Menlo, monospace;
-  font-size: 28px; font-weight: 700; line-height: 1.0;
+  font-size: 22px; font-weight: 600; line-height: 1.0;
   color: var(--text); letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
 }
 .kpi .delta {
-  font-size: 11px; color: #9ca3af;
-  margin-top: 6px; letter-spacing: 0.04em;
+  font-family: "SF Mono", Menlo, monospace;
+  font-size: 11px; color: var(--text-3);
+  margin-top: 6px; letter-spacing: 0;
 }
-.kpi.green   { --accent: var(--green); }
-.kpi.green   .value { color: var(--green); }
-.kpi.red     { --accent: var(--red); }
-.kpi.red     .value { color: var(--red); }
-.kpi.gold    { --accent: var(--gold); }
-.kpi.gold    .value { color: var(--gold); }
-.kpi.orange  { --accent: var(--orange); }
-.kpi.white   { --accent: #e5e7eb; }
+.kpi.pos .value { color: var(--green); }
+.kpi.neg .value { color: var(--red); }
+.kpi.pos .delta { color: var(--green); }
+.kpi.neg .delta { color: var(--red); }
 
-/* --- Panel chrome (orange section labels) --- */
-.panel-title {
-  font-size: 10px; color: var(--orange);
-  text-transform: uppercase; letter-spacing: 0.16em;
-  font-weight: 700;
-  padding: 8px 14px;
-  border-bottom: 1px solid var(--border);
-  display: flex; justify-content: space-between; align-items: center;
-}
-.panel-title .right { color: #6b7280; font-weight: 500; letter-spacing: 0.06em; }
+/* --- Panels --- */
 .panel {
   background: var(--card);
   border: 1px solid var(--border);
-  border-radius: 4px;
-  margin-top: 6px;
+  margin-top: 10px;
 }
-.panel .body { padding: 8px 4px; }
+.panel-title {
+  font-family: "Inter", sans-serif;
+  font-size: 9px; color: var(--text-2);
+  text-transform: uppercase; letter-spacing: 0.16em;
+  font-weight: 600;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  display: flex; justify-content: space-between; align-items: center;
+}
+.panel-title .right {
+  color: var(--text-3); font-weight: 400; letter-spacing: 0.04em;
+  font-family: "SF Mono", Menlo, monospace; font-size: 10px;
+}
 
-/* --- Action badges (BUY green / CLOSE red) --- */
+/* --- Action tags --- */
 .act {
-  display: inline-block; padding: 3px 10px; border-radius: 3px;
-  font-size: 10px; font-weight: 800; letter-spacing: 0.08em;
+  display: inline-block; padding: 1px 6px;
   font-family: "SF Mono", Menlo, monospace;
+  font-size: 10px; font-weight: 700; letter-spacing: 0.08em;
+  border: 1px solid;
 }
-.act-buy   { background: rgba(34,197,94,0.18); color: var(--green); }
-.act-close { background: rgba(239,68,68,0.18); color: var(--red); }
-.act-stop  { background: rgba(239,68,68,0.10); color: #fca5a5; }
-.act-tgt   { background: rgba(34,197,94,0.10); color: #86efac; }
+.act-buy   { color: var(--green); border-color: rgba(22,163,74,0.4); }
+.act-close { color: var(--red);   border-color: rgba(220,38,38,0.4); }
 
 /* --- Tables --- */
 .t {
@@ -141,103 +167,67 @@ CSS = """
   font-size: 11px;
 }
 .t thead th {
-  font-size: 9px; color: #6b7280;
-  text-transform: uppercase; letter-spacing: 0.10em;
-  text-align: left; padding: 8px 10px;
+  font-family: "Inter", sans-serif;
+  font-size: 9px; color: var(--text-3);
+  text-transform: uppercase; letter-spacing: 0.12em;
+  text-align: left; padding: 8px 12px;
   border-bottom: 1px solid var(--border);
   font-weight: 600;
 }
 .t tbody td {
-  padding: 9px 10px; border-bottom: 1px solid #1a2330;
+  padding: 7px 12px; border-bottom: 1px solid var(--border);
   color: var(--text);
 }
-.t tbody tr:hover { background: rgba(255,255,255,0.02); }
+.t tbody tr:hover { background: #161616; }
 .t .num { text-align: right; font-variant-numeric: tabular-nums; }
-.t .pos { color: var(--green); font-weight: 600; }
-.t .neg { color: var(--red);   font-weight: 600; }
-.t .muted { color: #6b7280; }
+.t .pos { color: var(--green); }
+.t .neg { color: var(--red); }
+.t .muted { color: var(--text-3); }
 
-/* --- Live log --- */
-.live-log {
+/* --- Activity feed (log) --- */
+.feed {
   background: var(--bg);
   font-family: "SF Mono", Menlo, monospace;
-  font-size: 11px; line-height: 1.65;
-  padding: 8px 14px;
+  font-size: 11px; line-height: 1.55;
+  padding: 8px 12px;
   max-height: 380px; overflow-y: auto;
-  color: #d1d5db;
+  color: var(--text-2);
 }
-.live-log .ts   { color: #6b7280; }
-.live-log .info { color: #93c5fd; }
-.live-log .ok   { color: var(--green); }
-.live-log .err  { color: var(--red); }
-.live-log .warn { color: var(--gold); }
-.live-log .sym  { color: var(--orange); }
+.feed .ts   { color: var(--text-3); }
+.feed .ok   { color: var(--green); }
+.feed .err  { color: var(--red); }
+.feed .warn { color: var(--accent); }
+.feed .sig  { color: var(--text-2); }
 
-/* --- Footer disclaimer --- */
+/* --- Footer --- */
 .footer {
-  margin-top: 18px; padding: 10px 14px;
+  margin-top: 14px; padding: 10px 12px;
   border-top: 1px solid var(--border);
   display: flex; justify-content: space-between;
   font-family: "SF Mono", Menlo, monospace;
-  font-size: 10px; color: #6b7280;
+  font-size: 10px; color: var(--text-3);
   letter-spacing: 0.10em; text-transform: uppercase;
 }
 
-/* --- PAPER / LIVE mode pill (safety: visually impossible to confuse) --- */
-.mode-pill {
-  display: inline-block; margin-left: 14px;
-  padding: 4px 12px; border-radius: 4px;
-  font-family: "SF Mono", Menlo, monospace;
-  font-size: 11px; font-weight: 800; letter-spacing: 0.10em;
-  vertical-align: 3px;
-}
-.mode-paper {
-  background: rgba(34,197,94,0.15);
-  color: var(--green);
-  border: 1px solid rgba(34,197,94,0.4);
-}
-.mode-live {
-  background: rgba(239,68,68,0.20);
-  color: #fff;
-  border: 2px solid var(--red);
-  box-shadow: 0 0 12px rgba(239,68,68,0.4);
-  animation: live-pulse 2s ease-in-out infinite;
-}
-@keyframes live-pulse {
-  0%, 100% { box-shadow: 0 0 12px rgba(239,68,68,0.4); }
-  50%      { box-shadow: 0 0 20px rgba(239,68,68,0.8); }
-}
-
-/* --- Status dot (header) --- */
-.dot { display: inline-block; width: 8px; height: 8px;
-  border-radius: 50%; margin-right: 6px; vertical-align: middle; }
-.dot-green { background: var(--green); box-shadow: 0 0 6px var(--green); }
-.dot-red   { background: var(--red);   box-shadow: 0 0 6px var(--red); }
-
-/* Hide Streamlit chrome we don't want */
-header[data-testid="stHeader"] { background: transparent; }
-.stDeployButton { display: none; }
-.muted { color: #6b7280; font-size: 11px; }
+/* Streamlit overrides */
+.muted { color: var(--text-3); font-size: 11px; }
 .section-title {
-  font-size: 10px; color: var(--orange); text-transform: uppercase;
-  letter-spacing: 0.14em; font-weight: 700;
+  font-family: "Inter", sans-serif;
+  font-size: 9px; color: var(--text-2); text-transform: uppercase;
+  letter-spacing: 0.16em; font-weight: 600;
   margin: 14px 0 6px 0; padding-bottom: 4px;
   border-bottom: 1px solid var(--border);
 }
-.kill-on  { color: var(--red);   font-weight: 700; }
-.kill-off { color: var(--green); font-weight: 700; }
-.badge { display: inline-block; padding: 2px 8px; border-radius: 4px;
-    font-size: 11px; font-weight: 700; letter-spacing: 0.04em; }
-.badge-stop { background: rgba(239,68,68,0.10); color: #fca5a5; }
-.badge-tgt  { background: rgba(34,197,94,0.10); color: #86efac; }
-.badge-exit { background: rgba(107,114,128,0.20); color: var(--grey); }
-.log-line { font-family: "SF Mono", Menlo, monospace; font-size: 11px;
-    padding: 2px 0; color: #d1d5db; line-height: 1.4; }
-.log-time { color: #6b7280; }
-.log-buy  { color: var(--green); }
-.log-sell { color: var(--red); }
-.log-block{ color: #fbbf24; }
-.log-sig  { color: #60a5fa; }
+
+/* Streamlit tabs — neutralize colors */
+button[data-baseweb="tab"] {
+  font-family: "Inter", sans-serif !important;
+  font-size: 11px !important; letter-spacing: 0.10em !important;
+  text-transform: uppercase !important; font-weight: 600 !important;
+  color: var(--text-3) !important;
+}
+button[data-baseweb="tab"][aria-selected="true"] { color: var(--text) !important; }
+div[data-baseweb="tab-highlight"] { background: var(--accent) !important; }
 </style>
 """
 
@@ -322,7 +312,7 @@ def _equity_chart(
                 x=ts,
                 y=eq_df["equity"],
                 mode="lines",
-                line={"color": GOLD, "width": 2.5, "shape": "hv"},
+                line={"color": "#d97706", "width": 1.8, "shape": "hv"},
                 name="Strategy",
                 hovertemplate="Strat %{y:$,.2f}<extra></extra>",
             )
@@ -376,8 +366,8 @@ def _equity_chart(
     fig.update_layout(
         height=300,
         margin={"l": 4, "r": 4, "t": 4, "b": 4},
-        paper_bgcolor="#141a26",
-        plot_bgcolor="#141a26",
+        paper_bgcolor="#111111",
+        plot_bgcolor="#111111",
         xaxis={
             "gridcolor": "#1f2937",
             "showspikes": True,
@@ -640,26 +630,29 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
     current_cash = float(eq_df.iloc[-1]["cash"]) if not eq_df.empty else initial_cash
     total_return = (current_equity - initial_cash) / initial_cash if initial_cash > 0 else 0
 
-    # --- Header: brand left, clock + status dot right ---
+    # --- Header: institutional, no decoration ---
     now_utc_str = pd.Timestamp.utcnow().strftime("%H:%M:%S UTC")
     loop_alive = loop_control.status().running
     kill_on = kill_switch_active(kill_switch_path)
     live_trading = os.environ.get("LIVE_TRADING", "false").strip().lower() == "true"
-    dot_cls = "dot-green" if loop_alive and not kill_on else "dot-red"
-    dot_label = "RUNNING" if loop_alive and not kill_on else ("PAUSED" if kill_on else "OFFLINE")
-    mode_class = "mode-live" if live_trading else "mode-paper"
-    mode_text = "🔴 LIVE — REAL MONEY" if live_trading else "🟢 PAPER"
+    if loop_alive and not kill_on:
+        status_v, status_cls = "RUN", "run"
+    elif kill_on:
+        status_v, status_cls = "IDLE", "idle"
+    else:
+        status_v, status_cls = "OFF", "off"
+    mode_cls = "live" if live_trading else "paper"
+    mode_text = "LIVE" if live_trading else "PAPER"
     st.markdown(
         f'<div style="display:flex; justify-content:space-between; align-items:center; '
-        f'padding-bottom:14px; border-bottom:1px solid #1f2937; margin-bottom:14px;">'
-        f'<div class="brand">🐺 <span class="accent">WOLF</span> OF '
-        f'<span class="accent">VIBE</span> STREET'
+        f'padding-bottom:10px; border-bottom:1px solid #1f1f1f; margin-bottom:10px;">'
+        f'<div class="brand">WOLF OF VIBE STREET'
         f'<span class="sub">DASHBOARD</span>'
-        f'<span class="mode-pill {mode_class}">{mode_text}</span></div>'
-        f"<div style=\"font-family:'SF Mono',Menlo,monospace; font-size:12px; "
-        f'color:#9ca3af; letter-spacing:0.06em;">'
-        f"{now_utc_str} &nbsp;·&nbsp; "
-        f'<span class="dot {dot_cls}"></span><span style="color:#e5e7eb;">{dot_label}</span>'
+        f'<span class="mode {mode_cls}">{mode_text}</span></div>'
+        f'<div class="status">'
+        f'<span class="v">{now_utc_str}</span>'
+        f'<span style="margin:0 12px; color:#3a3a3a;">|</span>'
+        f'STATUS <span class="v {status_cls}">{status_v}</span>'
         f"</div></div>",
         unsafe_allow_html=True,
     )
@@ -670,7 +663,7 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
             f"(`uv run python -m workers.live_loop`) — page auto-refreshes."
         )
 
-    tab_overview, tab_compare = st.tabs(["📊 Overview", "🔬 Backtest compare"])
+    tab_overview, tab_compare = st.tabs(["OVERVIEW", "BACKTEST COMPARE"])
 
     with tab_overview:
         # Soak health — green/yellow/red banner so a morning check is one glance.
@@ -688,26 +681,30 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
                 break
             if c["status"] == "warn" and worst != "error":
                 worst = "warn"
-        banner_color = {"ok": GREEN, "warn": GOLD, "error": RED}[worst]
+        banner_color = {"ok": "#16a34a", "warn": "#d97706", "error": "#dc2626"}[worst]
         banner_label = {"ok": "HEALTHY", "warn": "ATTENTION", "error": "ISSUES"}[worst]
         st.markdown(
-            f'<div style="background:#141a26; border:1px solid {banner_color}; '
-            f"border-left:4px solid {banner_color}; border-radius:6px; "
+            f'<div style="background:#111111; border:1px solid #1f1f1f; '
+            f"border-left:2px solid {banner_color}; "
             f'padding:10px 14px; margin-bottom:10px;">'
             f'<div style="display:flex; justify-content:space-between; align-items:center;">'
-            f'<span style="font-size:12px; color:#9ca3af; text-transform:uppercase; '
-            f'letter-spacing:0.1em;">Soak status</span>'
-            f'<span style="color:{banner_color}; font-weight:700; font-size:13px; '
-            f'letter-spacing:0.05em;">{banner_label}</span></div>'
-            f'<div style="margin-top:6px; display:grid; '
-            f"grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap:6px; "
-            f'font-size:11px;">'
+            f'<span style="font-family:Inter,sans-serif; font-size:9px; color:#a3a3a3; '
+            f'text-transform:uppercase; letter-spacing:0.16em; font-weight:600;">'
+            f"Soak status</span>"
+            f"<span style=\"font-family:'SF Mono',Menlo,monospace; "
+            f"color:{banner_color}; font-weight:700; font-size:11px; "
+            f'letter-spacing:0.14em;">{banner_label}</span></div>'
+            f'<div style="margin-top:8px; display:grid; '
+            f"grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap:4px 16px; "
+            f"font-family:'SF Mono',Menlo,monospace; font-size:10px;\">"
             + "".join(
                 '<div><span style="color:'
-                + {"ok": GREEN, "warn": GOLD, "error": RED}[c["status"]]
-                + '">●</span> '
-                f'<span style="color:#e5e7eb;">{c["name"]}</span> '
-                f'<span style="color:#9ca3af;">— {c["message"]}</span></div>'
+                + {"ok": "#16a34a", "warn": "#d97706", "error": "#dc2626"}[c["status"]]
+                + '; font-weight:700;">['
+                + c["status"].upper()[:3]
+                + "]</span> "
+                f'<span style="color:#e8e8e8;">{c["name"]}</span> '
+                f'<span style="color:#737373;">— {c["message"]}</span></div>'
                 for c in checks
             )
             + "</div></div>",
@@ -720,51 +717,57 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
         max_pos = _RiskCaps().max_concurrent_positions
         now_ms = int(pd.Timestamp.utcnow().timestamp() * 1000)
         today_pnl = day_pnl(rows, now_ms=now_ms)
-        equity_color = (
-            "white" if abs(total_return) < 0.001 else ("green" if total_return > 0 else "red")
-        )
-        cash_color = "red" if current_cash < 0 else "white"
-        day_color = "green" if today_pnl >= 0 else "red"
-        vs_start_color = "gold"
 
-        def _kpi(color: str, label: str, value: str, delta: str = "") -> str:
+        def _sign(value: float) -> str:
+            if value > 0:
+                return "pos"
+            if value < 0:
+                return "neg"
+            return ""
+
+        def _kpi(state: str, label: str, value: str, delta: str = "") -> str:
             delta_html = f'<div class="delta">{delta}</div>' if delta else ""
             return (
-                f'<div class="kpi {color}">'
+                f'<div class="kpi {state}">'
                 f'<div class="label">{label}</div>'
                 f'<div class="value">{value}</div>'
                 f"{delta_html}</div>"
             )
 
         k1, k2, k3, k4, k5 = st.columns(5)
+        delta_eq = current_equity - initial_cash
         k1.markdown(
             _kpi(
-                equity_color,
+                _sign(delta_eq),
                 "Equity",
                 f"${current_equity:,.2f}",
-                f"{total_return * 100:+.2f}% vs start",
+                f"{total_return * 100:+.2f}%",
             ),
             unsafe_allow_html=True,
         )
         k2.markdown(
-            _kpi(cash_color, "Cash", f"${current_cash:,.2f}"),
+            _kpi(_sign(current_cash - initial_cash), "Cash", f"${current_cash:,.2f}"),
             unsafe_allow_html=True,
         )
         k3.markdown(
-            _kpi(day_color, "Day P&L", f"${today_pnl:+,.2f}" if today_pnl else "$0.00", ""),
+            _kpi(
+                _sign(today_pnl),
+                "Day P&L",
+                f"${today_pnl:+,.2f}" if today_pnl else "$0.00",
+            ),
             unsafe_allow_html=True,
         )
         k4.markdown(
             _kpi(
-                vs_start_color,
-                "Vs. start",
-                f"${current_equity - initial_cash:+,.2f}",
+                _sign(delta_eq),
+                "Total P&L",
+                f"${delta_eq:+,.2f}",
                 f"{total_return * 100:+.2f}%",
             ),
             unsafe_allow_html=True,
         )
         k5.markdown(
-            _kpi("white", "Positions", str(len(positions)), f"max {max_pos}"),
+            _kpi("", "Positions", str(len(positions)), f"max {max_pos}"),
             unsafe_allow_html=True,
         )
 
@@ -855,7 +858,7 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
                 "</div>",
                 unsafe_allow_html=True,
             )
-            tab_dec, tab_stdout = st.tabs(["📜 Decisions", "🖥 Loop stdout"])
+            tab_dec, tab_stdout = st.tabs(["DECISIONS", "LOOP STDOUT"])
             with tab_dec:
                 st.markdown(_live_log_html(rows, n=80), unsafe_allow_html=True)
             with tab_stdout:
@@ -890,7 +893,7 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
         _render_compare_tab()
 
     with st.sidebar:
-        st.subheader("Live loop")
+        st.subheader("LIVE LOOP")
         loop_status = loop_control.status()
         if loop_status.running:
             uptime_s = (
@@ -917,7 +920,7 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
                 st.rerun()
         st.caption(f"Logs: `{loop_status.log_path}`")
 
-        with st.expander("⚠ Reset for fresh soak", expanded=False):
+        with st.expander("RESET FOR FRESH SOAK", expanded=False):
             st.caption(
                 "Wipes the decision log so the dashboard shows ONLY data from this point forward. "
                 "Old log is moved to `data/decision_log/backups/` (you can always restore it). "
@@ -943,7 +946,7 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
                 st.rerun()
 
         st.divider()
-        st.subheader("Kill switch")
+        st.subheader("KILL SWITCH")
         if kill_switch_active(kill_switch_path):
             st.error("ACTIVE — bot is paused")
             if st.button("Disable kill switch", type="primary", width="stretch"):
@@ -959,7 +962,7 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
         st.caption(f"File: `{kill_switch_path}`")
 
         st.divider()
-        with st.expander("📱 Telegram alerts", expanded=False):
+        with st.expander("TELEGRAM ALERTS", expanded=False):
             env = env_config.read_env()
             current_token = env.get("TELEGRAM_BOT_TOKEN", "")
             current_chat = env.get("TELEGRAM_CHAT_ID", "")
@@ -995,7 +998,7 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
                 st.success("Saved. Stop + start the loop to pick up the new values.")
 
         st.divider()
-        st.subheader("Event counts")
+        st.subheader("EVENT COUNTS")
         for k, v in sorted(event_counts(rows).items()):
             st.markdown(
                 f'<div style="display:flex; justify-content:space-between; font-size:12px;">'
