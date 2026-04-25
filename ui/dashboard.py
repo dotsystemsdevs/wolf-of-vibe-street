@@ -43,7 +43,7 @@ from ui.views import (  # noqa: E402
 DEFAULT_DB_PATH = Path("data/decision_log/traderbot.db")
 REFRESH_INTERVAL_S = 30
 # Bump when UI changes — if you do not see this in the header, you are not running this file.
-DASHBOARD_BUILD = "2026-04-26d"
+DASHBOARD_BUILD = "2026-04-26e"
 
 GREEN = "#22c55e"
 RED = "#ef4444"
@@ -58,7 +58,10 @@ FONT_LINK = """
 
 CSS = """
 <style>
-/* Wolf-of-Vibe-Street execution desk — dark floor, amber edge, tape typography */
+/* Wolf-of-Vibe-Street execution desk — black floor, gold edge, tape typography.
+ * Color rule: GOLD is the only chrome accent (status hints, edges, separators).
+ * GREEN/RED are reserved for *real events* — P&L, win/loss, buy/close, RUN/OFF.
+ * If a value is not a P&L outcome or live state, it must NOT be green or red. */
 :root {
   --bg:        #070707;
   --card:      #0e0e0e;
@@ -67,16 +70,16 @@ CSS = """
   --text:      #f0f0f0;
   --text-2:    #a8a8a8;
   --text-3:    #6b6b6b;
-  --accent:    #ea580c;
-  --accent-dim: rgba(234, 88, 12, 0.35);
-  --green:     #22c55e;
-  --red:       #ef4444;
+  --accent:    #fbbf24;             /* gold — used for chrome only */
+  --accent-dim: rgba(251, 191, 36, 0.32);
+  --green:     #22c55e;             /* P&L positive, RUN, BUY */
+  --red:       #ef4444;             /* P&L negative, OFF, CLOSE */
 }
 
 .stApp {
   background-color: var(--bg) !important;
   background-image:
-    linear-gradient(165deg, rgba(234, 88, 12, 0.04) 0%, transparent 42%),
+    linear-gradient(165deg, rgba(251, 191, 36, 0.025) 0%, transparent 42%),
     repeating-linear-gradient(
       0deg, transparent, transparent 48px,
       rgba(255,255,255,0.012) 48px, rgba(255,255,255,0.012) 49px
@@ -316,6 +319,135 @@ button[data-baseweb="tab"] {
 }
 button[data-baseweb="tab"][aria-selected="true"] { color: var(--text) !important; }
 div[data-baseweb="tab-highlight"] { background: var(--accent) !important; }
+
+/* --- Sidebar — match the desk: black floor, gold edges, Oswald headers --- */
+[data-testid="stSidebar"] {
+  background: #050505 !important;
+  border-right: 1px solid var(--border);
+}
+[data-testid="stSidebar"] [data-testid="stSidebarUserContent"] {
+  padding-top: 1rem;
+}
+[data-testid="stSidebar"] h1,
+[data-testid="stSidebar"] h2,
+[data-testid="stSidebar"] h3,
+[data-testid="stSidebar"] .stSubheader {
+  font-family: "Oswald", sans-serif !important;
+  font-size: 12px !important; font-weight: 600 !important;
+  letter-spacing: 0.22em !important; text-transform: uppercase !important;
+  color: var(--accent) !important;
+  margin: 14px 0 8px 0 !important;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+[data-testid="stSidebar"] hr,
+[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] hr {
+  border-color: var(--border) !important;
+  margin: 12px 0 !important;
+}
+[data-testid="stSidebar"] [data-testid="stCaptionContainer"],
+[data-testid="stSidebar"] .stCaption,
+[data-testid="stSidebar"] small {
+  font-family: "JetBrains Mono", monospace !important;
+  font-size: 10px !important;
+  color: var(--text-3) !important;
+  letter-spacing: 0.04em;
+}
+/* Sidebar buttons — flat, gold border on primary, mono text. */
+[data-testid="stSidebar"] .stButton > button {
+  font-family: "Oswald", sans-serif !important;
+  font-size: 11px !important;
+  letter-spacing: 0.16em !important;
+  text-transform: uppercase !important;
+  font-weight: 600 !important;
+  border-radius: 0 !important;
+  border: 1px solid var(--border-2) !important;
+  background: #0a0a0a !important;
+  color: var(--text) !important;
+  transition: border-color 0.12s, color 0.12s;
+}
+[data-testid="stSidebar"] .stButton > button:hover {
+  border-color: var(--accent) !important;
+  color: var(--accent) !important;
+}
+[data-testid="stSidebar"] .stButton > button[kind="primary"],
+[data-testid="stSidebar"] .stButton > button[data-baseweb="button"][kind="primary"] {
+  background: var(--accent) !important;
+  color: #0a0a0a !important;
+  border-color: var(--accent) !important;
+}
+[data-testid="stSidebar"] .stButton > button[kind="primary"]:hover {
+  background: #fcd34d !important;
+  border-color: #fcd34d !important;
+}
+[data-testid="stSidebar"] .stButton > button:disabled {
+  opacity: 0.4 !important;
+  border-color: var(--border) !important;
+  color: var(--text-3) !important;
+}
+/* Sidebar status callouts (st.success/warning/error) — strip Streamlit's boxes,
+ * keep only the meaning: green/yellow/red text on black with a thin left rule. */
+[data-testid="stSidebar"] [data-testid="stAlert"],
+[data-testid="stSidebar"] [data-baseweb="notification"] {
+  border-radius: 0 !important;
+  background: #0a0a0a !important;
+  border: 1px solid var(--border) !important;
+  border-left-width: 2px !important;
+  padding: 8px 12px !important;
+  font-family: "JetBrains Mono", monospace !important;
+  font-size: 11px !important;
+  box-shadow: none !important;
+}
+[data-testid="stSidebar"] [data-testid="stAlertContentSuccess"],
+[data-testid="stSidebar"] [data-baseweb="notification"][kind="positive"] {
+  border-left-color: var(--green) !important;
+  color: var(--green) !important;
+}
+[data-testid="stSidebar"] [data-testid="stAlertContentWarning"],
+[data-testid="stSidebar"] [data-baseweb="notification"][kind="warning"] {
+  border-left-color: var(--accent) !important;
+  color: var(--accent) !important;
+}
+[data-testid="stSidebar"] [data-testid="stAlertContentError"],
+[data-testid="stSidebar"] [data-baseweb="notification"][kind="negative"] {
+  border-left-color: var(--red) !important;
+  color: var(--red) !important;
+}
+/* Sidebar expander — match section header pattern. */
+[data-testid="stSidebar"] [data-testid="stExpander"] {
+  background: transparent !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 0 !important;
+}
+[data-testid="stSidebar"] [data-testid="stExpander"] summary {
+  font-family: "Oswald", sans-serif !important;
+  font-size: 11px !important;
+  letter-spacing: 0.16em !important;
+  text-transform: uppercase !important;
+  color: var(--text-2) !important;
+  font-weight: 600 !important;
+}
+[data-testid="stSidebar"] [data-testid="stExpander"] summary:hover {
+  color: var(--accent) !important;
+}
+/* Sidebar text inputs — black, gold focus ring. */
+[data-testid="stSidebar"] input {
+  background: #0a0a0a !important;
+  border: 1px solid var(--border-2) !important;
+  border-radius: 0 !important;
+  color: var(--text) !important;
+  font-family: "JetBrains Mono", monospace !important;
+}
+[data-testid="stSidebar"] input:focus {
+  border-color: var(--accent) !important;
+  box-shadow: none !important;
+}
+/* Sidebar checkbox label */
+[data-testid="stSidebar"] [data-testid="stCheckbox"] label {
+  font-family: "JetBrains Mono", monospace !important;
+  font-size: 11px !important;
+  color: var(--text-2) !important;
+}
 </style>
 """
 
@@ -417,7 +549,7 @@ def _equity_chart(
                 x=ts,
                 y=eq_df["equity"],
                 mode="lines",
-                line={"color": "#ea580c", "width": 1.8, "shape": "hv"},
+                line={"color": "#fbbf24", "width": 1.8, "shape": "hv"},
                 name="Strategy",
                 hovertemplate="Strat %{y:$,.2f}<extra></extra>",
             )
@@ -812,7 +944,7 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
                 break
             if c["status"] == "warn" and worst != "error":
                 worst = "warn"
-        banner_color = {"ok": "#22c55e", "warn": "#ea580c", "error": "#ef4444"}[worst]
+        banner_color = {"ok": "#22c55e", "warn": "#fbbf24", "error": "#ef4444"}[worst]
         banner_label = {"ok": "HEALTHY", "warn": "ATTENTION", "error": "ISSUES"}[worst]
         st.markdown(
             f'<div style="background:linear-gradient(180deg,#121212 0%,#0c0c0c 100%); '
@@ -830,7 +962,7 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
             f"font-family:'JetBrains Mono',monospace; font-size:10px;\">"
             + "".join(
                 '<div><span style="color:'
-                + {"ok": "#22c55e", "warn": "#ea580c", "error": "#ef4444"}[c["status"]]
+                + {"ok": "#22c55e", "warn": "#fbbf24", "error": "#ef4444"}[c["status"]]
                 + '; font-weight:700;">['
                 + c["status"].upper()[:3]
                 + "]</span> "
@@ -952,7 +1084,7 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
         if exposure_pct == 0:
             exp_str, exp_color = f"0% · max {max_pos} pos", neutral
         else:
-            exp_str, exp_color = f"{exposure_pct:.1f}% · max {max_pos} pos", "#ea580c"
+            exp_str, exp_color = f"{exposure_pct:.1f}% · max {max_pos} pos", "#fbbf24"
 
         m1, m2, m3, m4 = st.columns(4)
         m1.markdown(_mini("Sharpe (ann.)", sharpe_str, sharpe_color), unsafe_allow_html=True)
@@ -1009,7 +1141,7 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
                         f'<div style="display:flex; justify-content:space-between; '
                         f"padding:4px 0; font-family:'JetBrains Mono',monospace; "
                         f'font-size:11px;">'
-                        f'<span style="color:#ea580c;">{reason}</span>'
+                        f'<span style="color:#fbbf24;">{reason}</span>'
                         f'<span style="color:#6b6b6b;">{count}</span></div>',
                         unsafe_allow_html=True,
                     )
@@ -1149,7 +1281,10 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
         for k, v in sorted(event_counts(rows).items()):
             st.markdown(
                 f'<div style="display:flex; justify-content:space-between; font-size:12px;">'
-                f'<span style="color:#9ca3af;">{k}</span><span>{v}</span></div>',
+                f'<span style="color:#a8a8a8; font-family:JetBrains Mono,monospace; '
+                f'font-size:11px;">{k}</span>'
+                f'<span style="font-family:JetBrains Mono,monospace; font-size:11px; '
+                f'color:#f0f0f0;">{v}</span></div>',
                 unsafe_allow_html=True,
             )
         st.divider()
