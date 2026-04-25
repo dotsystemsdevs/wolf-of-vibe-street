@@ -532,6 +532,31 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
                 st.rerun()
         st.caption(f"Logs: `{loop_status.log_path}`")
 
+        with st.expander("⚠ Reset for fresh soak", expanded=False):
+            st.caption(
+                "Wipes the decision log so the dashboard shows ONLY data from this point forward. "
+                "Old log is moved to `data/decision_log/backups/` (you can always restore it). "
+                "Stops the loop first; you'll need to start it again after."
+            )
+            confirm = st.checkbox("Yes, I want to start with a clean log", key="reset_confirm")
+            if st.button(
+                "Reset decision log",
+                type="secondary",
+                width="stretch",
+                disabled=not confirm,
+            ):
+                if loop_control.status().running:
+                    with st.spinner("Stopping loop..."):
+                        loop_control.stop()
+                backup = loop_control.reset_decision_log(log_path)
+                if backup:
+                    st.success(f"Log reset. Backup: `{backup}`")
+                else:
+                    st.info("Nothing to reset — log was already empty.")
+                # Clear the checkbox state so it has to be re-checked next time.
+                st.session_state.pop("reset_confirm", None)
+                st.rerun()
+
         st.divider()
         st.subheader("Kill switch")
         if kill_switch_active(kill_switch_path):

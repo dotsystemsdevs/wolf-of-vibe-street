@@ -64,3 +64,37 @@ def test_loop_status_running_property() -> None:
     assert s.running is False
     s2 = LoopStatus(pid=42, started_at_ms=1000, log_path=Path("/tmp/x"), pid_path=Path("/tmp/y"))
     assert s2.running is True
+
+
+# --- reset_decision_log ---
+
+
+def test_reset_decision_log_moves_db_to_backup(tmp_path: Path) -> None:
+    from tools.loop_control import reset_decision_log
+
+    db = tmp_path / "traderbot.db"
+    db.write_bytes(b"fake-sqlite-content")
+
+    backup = reset_decision_log(db, timestamp="20260425T211900")
+    assert backup is not None
+    assert backup.name == "traderbot.db-20260425T211900.bak"
+    assert backup.exists()
+    assert backup.read_bytes() == b"fake-sqlite-content"
+    assert db.exists() is False  # original moved aside
+
+
+def test_reset_decision_log_missing_db_returns_none(tmp_path: Path) -> None:
+    from tools.loop_control import reset_decision_log
+
+    assert reset_decision_log(tmp_path / "nope.db") is None
+
+
+def test_reset_decision_log_creates_backups_dir(tmp_path: Path) -> None:
+    from tools.loop_control import reset_decision_log
+
+    db = tmp_path / "traderbot.db"
+    db.write_bytes(b"x")
+    backup = reset_decision_log(db, timestamp="20260101T000000")
+    assert backup is not None
+    assert backup.parent.name == "backups"
+    assert backup.parent.exists()

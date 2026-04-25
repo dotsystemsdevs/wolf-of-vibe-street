@@ -164,6 +164,28 @@ def stop(
     return True
 
 
+def reset_decision_log(
+    db_path: Path,
+    *,
+    backups_dir: Path | None = None,
+    timestamp: str | None = None,
+) -> Path | None:
+    """Move the decision log aside so the next loop run starts with a clean slate.
+
+    Returns the backup path (e.g. `data/decision_log/backups/traderbot.db-20260425T211900.bak`)
+    or `None` if there was nothing to back up. Caller is responsible for stopping the
+    loop first — a running loop holds the DB connection.
+    """
+    if not db_path.exists():
+        return None
+    backups = backups_dir or db_path.parent / "backups"
+    backups.mkdir(parents=True, exist_ok=True)
+    ts = timestamp or time.strftime("%Y%m%dT%H%M%S")
+    backup = backups / f"{db_path.name}-{ts}.bak"
+    db_path.rename(backup)
+    return backup
+
+
 def tail_log(log_path: Path = DEFAULT_LOG_PATH, lines: int = 50) -> str:
     """Return the last `lines` lines of the log file. Empty string if no log."""
     if not log_path.exists():
