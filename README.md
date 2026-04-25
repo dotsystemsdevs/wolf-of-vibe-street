@@ -14,7 +14,15 @@ uv run pytest
 
 ## Run
 
-Three things you can run:
+**One command starts everything** (live loop + dashboard, Mac stays awake, Ctrl+C stops both):
+
+```bash
+./dev-start.sh
+```
+
+Then open <http://localhost:8501>. Loop logs go to `/tmp/traderbot-loop.log`.
+
+Or run pieces individually:
 
 ```bash
 # 1. Live loop (paper mode) — polls Binance, processes new bars, writes decision log.
@@ -25,6 +33,9 @@ uv run streamlit run ui/dashboard.py
 
 # 3. Text report — instant CLI summary of the decision log.
 uv run python -m ui.report
+
+# 4. Multi-symbol backtest — terminal table + saves an HTML report.
+uv run python -m backtest.compare
 ```
 
 The live loop is **paper only**. Real orders require `LIVE_TRADING=true` AND a separate go-live gate that does not exist yet (per I-4 in `memory-bank/@architecture.md`).

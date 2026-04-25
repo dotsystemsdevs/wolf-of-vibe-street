@@ -20,6 +20,11 @@ import pandas as pd  # noqa: E402
 import plotly.graph_objects as go  # noqa: E402
 import streamlit as st  # noqa: E402
 
+from backtest.compare import (  # noqa: E402
+    DEFAULT_SYMBOLS,
+    make_figure,
+    run_comparison,
+)
 from memory.decision_log import DecisionLog  # noqa: E402
 from risk.caps import DEFAULT_KILL_SWITCH_PATH, kill_switch_active  # noqa: E402
 from ui.views import (  # noqa: E402
@@ -238,6 +243,85 @@ def _live_log_html(rows: list[dict], n: int = 30) -> str:
     )
 
 
+def _render_compare_tab() -> None:
+    """Backtest comparison — runs `backtest.compare` in-process and shows the chart."""
+    st.markdown(
+        '<div class="muted" style="margin-bottom:8px;">Run the baseline EMA-cross strategy '
+        "across multiple symbols and compare equity curves vs buy-and-hold. "
+        "Backfills are reused if the local parquet already covers the window.</div>",
+        unsafe_allow_html=True,
+    )
+
+    c1, c2, c3 = st.columns([3, 1, 1])
+    symbols_str = c1.text_input(
+        "Symbols (comma-separated)",
+        ", ".join(DEFAULT_SYMBOLS),
+        key="compare_symbols",
+    )
+    days = c2.number_input("Days", min_value=7, max_value=180, value=30, step=1, key="compare_days")
+    timeframe = c3.selectbox("Timeframe", ["1h", "4h", "1d"], index=0, key="compare_tf")
+
+    if st.button("Run comparison", type="primary"):
+        symbols = [s.strip() for s in symbols_str.split(",") if s.strip()]
+        if not symbols:
+            st.error("Need at least one symbol.")
+            return
+        with st.spinner(f"Backfilling + backtesting {len(symbols)} symbols..."):
+            try:
+                results = run_comparison(symbols, days=int(days), timeframe=timeframe)
+            except Exception as e:
+                st.error(f"Comparison failed: {type(e).__name__}: {e}")
+                return
+        st.session_state["compare_results"] = results
+
+    results = st.session_state.get("compare_results")
+    if results is None:
+        st.info("Set parameters and click **Run comparison**.")
+        return
+
+    st.plotly_chart(make_figure(results), config={"displayModeBar": False}, width="stretch")
+
+    st.markdown('<div class="section-title">Per-symbol breakdown</div>', unsafe_allow_html=True)
+    rows_html: list[str] = []
+    for r in results:
+        m = r.result.metrics
+        strat_pct = m["total_return_pct"] * 100
+        diff = strat_pct - r.buy_hold_return_pct
+        diff_color = GREEN if diff > 0 else (RED if diff < 0 else GREY)
+        strat_color = GREEN if strat_pct > 0 else (RED if strat_pct < 0 else GREY)
+        rows_html.append(
+            f'<tr style="border-bottom:1px solid #1f2937;">'
+            f'<td style="padding:6px 8px;"><strong>{r.symbol}</strong></td>'
+            f'<td style="padding:6px 8px; text-align:right;">{r.bars}</td>'
+            f'<td style="padding:6px 8px; text-align:right;">{int(m["num_trades"])}</td>'
+            f'<td style="padding:6px 8px; text-align:right;">{m["win_rate"] * 100:.1f}%</td>'
+            f'<td style="padding:6px 8px; text-align:right; color:{strat_color}; '
+            f'font-weight:600;">{strat_pct:+.2f}%</td>'
+            f'<td style="padding:6px 8px; text-align:right;">{r.buy_hold_return_pct:+.2f}%</td>'
+            f'<td style="padding:6px 8px; text-align:right; color:{diff_color};">'
+            f"{diff:+.2f}pp</td>"
+            f'<td style="padding:6px 8px; text-align:right;">{m["sharpe"]:+.2f}</td>'
+            f'<td style="padding:6px 8px; text-align:right;">{m["max_drawdown"] * 100:.2f}%</td>'
+            f"</tr>"
+        )
+    st.markdown(
+        '<table style="width:100%; border-collapse:collapse; font-size:12px;">'
+        '<thead><tr style="color:#9ca3af; font-size:10px; text-transform:uppercase; '
+        'letter-spacing:0.08em; border-bottom:1px solid #374151;">'
+        '<th style="padding:6px 8px; text-align:left;">Symbol</th>'
+        '<th style="padding:6px 8px; text-align:right;">Bars</th>'
+        '<th style="padding:6px 8px; text-align:right;">Trades</th>'
+        '<th style="padding:6px 8px; text-align:right;">WR</th>'
+        '<th style="padding:6px 8px; text-align:right;">Strategy</th>'
+        '<th style="padding:6px 8px; text-align:right;">B&amp;H</th>'
+        '<th style="padding:6px 8px; text-align:right;">Diff</th>'
+        '<th style="padding:6px 8px; text-align:right;">Sharpe</th>'
+        '<th style="padding:6px 8px; text-align:right;">MaxDD</th>'
+        "</tr></thead><tbody>" + "".join(rows_html) + "</tbody></table>",
+        unsafe_allow_html=True,
+    )
+
+
 def _positions_html(positions: list[dict]) -> str:
     if not positions:
         return '<div class="muted">No open positions.</div>'
@@ -281,73 +365,92 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
         unsafe_allow_html=True,
     )
 
-    if not log_path.exists():
-        st.warning(f"No decision log at `{log_path}`. Run the live loop and refresh.")
-        return
-
-    log = DecisionLog(log_path)
-    rows = log.all()
-    log.close()
+    rows: list[dict] = []
+    if log_path.exists():
+        log = DecisionLog(log_path)
+        rows = log.all()
+        log.close()
 
     s = summary(rows, initial_cash=initial_cash)
     eq_df = equity_curve(rows, initial_cash=initial_cash)
     positions = open_positions(rows)
+    fills = [r for r in rows if r["event_type"] == "order_filled"]
+    last_bar_ts = max((int(r["timestamp_ms"]) for r in fills), default=None)
+    active_symbols = sorted({r["symbol"] for r in rows}) if rows else []
 
     current_equity = float(eq_df.iloc[-1]["equity"]) if not eq_df.empty else initial_cash
     current_cash = float(eq_df.iloc[-1]["cash"]) if not eq_df.empty else initial_cash
     total_return = (current_equity - initial_cash) / initial_cash if initial_cash > 0 else 0
     realized_pnl = s["realized_pnl"]
 
+    last_bar_str = _ts_to_str(last_bar_ts, "%Y-%m-%d %H:%M UTC") if last_bar_ts else "—"
+    symbols_str = ", ".join(active_symbols) if active_symbols else "—"
     st.markdown(
         f'<div style="display:flex; justify-content:space-between; align-items:center; '
         f'margin-bottom:8px;">'
         f'<div><span style="font-size:18px; font-weight:700; letter-spacing:0.06em; '
         f'color:#fbbf24;">TRADING / BOT</span> '
         f'<span class="muted" style="margin-left:12px;">DASHBOARD · paper</span></div>'
-        f'<div style="font-size:11px; color:#9ca3af;">'
-        f"kill switch: "
+        f'<div style="font-size:11px; color:#9ca3af; text-align:right;">'
+        f'<div>last fill: <span style="color:#e5e7eb;">{last_bar_str}</span> '
+        f'· symbols: <span style="color:#e5e7eb;">{symbols_str}</span></div>'
+        f"<div>kill switch: "
         f'<span class="{"kill-on" if kill_switch_active(kill_switch_path) else "kill-off"}">'
         f"{'ACTIVE' if kill_switch_active(kill_switch_path) else 'OFF'}</span>"
-        f" · auto-refresh {REFRESH_INTERVAL_S}s</div>"
+        f" · auto-refresh {REFRESH_INTERVAL_S}s</div></div>"
         f"</div>",
         unsafe_allow_html=True,
     )
 
-    c1, c2, c3, c4, c5 = st.columns(5)
-    c1.metric("Equity", _fmt_money(current_equity), f"{total_return * 100:+.2f} %")
-    c2.metric("Cash", _fmt_money(current_cash))
-    c3.metric("Realized P&L", _fmt_money(realized_pnl, sign=True), f"{s['win_rate'] * 100:.1f}% WR")
-    c4.metric("Trades", s["trades"], f"{s['wins']}W / {s['losses']}L")
-    c5.metric("Open positions", len(positions))
-
-    left, right = st.columns([2, 1])
-
-    with left:
-        st.markdown('<div class="section-title">Equity curve</div>', unsafe_allow_html=True)
-        st.plotly_chart(
-            _equity_chart(eq_df, initial_cash), config={"displayModeBar": False}, width="stretch"
+    if not rows:
+        st.warning(
+            f"No decision log yet at `{log_path}`. Start the live loop "
+            f"(`uv run python -m workers.live_loop`) — page auto-refreshes."
         )
 
-        st.markdown('<div class="section-title">Trade history</div>', unsafe_allow_html=True)
-        st.markdown(_trades_table_html(trades_dataframe(rows)), unsafe_allow_html=True)
+    tab_overview, tab_compare = st.tabs(["📊 Overview", "🔬 Backtest compare"])
 
-    with right:
-        st.markdown('<div class="section-title">Open positions</div>', unsafe_allow_html=True)
-        st.markdown(_positions_html(positions), unsafe_allow_html=True)
+    with tab_overview:
+        c1, c2, c3, c4, c5 = st.columns(5)
+        c1.metric("Equity", _fmt_money(current_equity), f"{total_return * 100:+.2f} %")
+        c2.metric("Cash", _fmt_money(current_cash))
+        c3.metric(
+            "Realized P&L",
+            _fmt_money(realized_pnl, sign=True),
+            f"{s['win_rate'] * 100:.1f}% WR",
+        )
+        c4.metric("Trades", s["trades"], f"{s['wins']}W / {s['losses']}L")
+        c5.metric("Open positions", len(positions))
 
-        st.markdown('<div class="section-title">Live log</div>', unsafe_allow_html=True)
-        st.markdown(_live_log_html(rows), unsafe_allow_html=True)
+        left, right = st.columns([2, 1])
+        with left:
+            st.markdown('<div class="section-title">Equity curve</div>', unsafe_allow_html=True)
+            st.plotly_chart(
+                _equity_chart(eq_df, initial_cash),
+                config={"displayModeBar": False},
+                width="stretch",
+            )
+            st.markdown('<div class="section-title">Trade history</div>', unsafe_allow_html=True)
+            st.markdown(_trades_table_html(trades_dataframe(rows)), unsafe_allow_html=True)
 
-        if s["blocks_by_reason"]:
-            st.markdown('<div class="section-title">Risk blocks</div>', unsafe_allow_html=True)
-            for reason, count in sorted(s["blocks_by_reason"].items(), key=lambda kv: -kv[1]):
-                st.markdown(
-                    f'<div style="display:flex; justify-content:space-between; '
-                    f'padding:4px 0; font-size:12px;">'
-                    f'<span style="color:#fbbf24;">{reason}</span>'
-                    f'<span style="color:#9ca3af;">{count}</span></div>',
-                    unsafe_allow_html=True,
-                )
+        with right:
+            st.markdown('<div class="section-title">Open positions</div>', unsafe_allow_html=True)
+            st.markdown(_positions_html(positions), unsafe_allow_html=True)
+            st.markdown('<div class="section-title">Live log</div>', unsafe_allow_html=True)
+            st.markdown(_live_log_html(rows), unsafe_allow_html=True)
+            if s["blocks_by_reason"]:
+                st.markdown('<div class="section-title">Risk blocks</div>', unsafe_allow_html=True)
+                for reason, count in sorted(s["blocks_by_reason"].items(), key=lambda kv: -kv[1]):
+                    st.markdown(
+                        f'<div style="display:flex; justify-content:space-between; '
+                        f'padding:4px 0; font-size:12px;">'
+                        f'<span style="color:#fbbf24;">{reason}</span>'
+                        f'<span style="color:#9ca3af;">{count}</span></div>',
+                        unsafe_allow_html=True,
+                    )
+
+    with tab_compare:
+        _render_compare_tab()
 
     with st.sidebar:
         st.subheader("Controls")

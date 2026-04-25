@@ -5,6 +5,28 @@
 
 ---
 
+## 2026-04-25 (session 23) — Dashboard tabs + compare + one-command launcher
+
+User wanted everything in one place + no command memorization. Three concrete additions:
+
+- **`backtest/compare.py` refactor**: extracted `make_figure(results)` (in-memory `go.Figure`) + `run_comparison(symbols, *, days, timeframe, config)` for in-process callers (the dashboard). `render_html()` now wraps `make_figure()`. CLI behavior unchanged.
+- **Dashboard tabs**: `📊 Overview` (existing) + `🔬 Backtest compare`. Compare tab takes symbols (text input), days (number), timeframe (select) → `Run comparison` button → backfills + runs in-process → embeds the Plotly figure inline + renders a per-symbol table with green/red Strategy/Diff coloring. Result cached in `st.session_state` so re-runs only re-render, not re-compute.
+- **Status row** in the header: last fill timestamp + comma-separated list of active symbols (extracted from log) + kill switch + auto-refresh — all visible at a glance, no clicks.
+- **`dev-start.sh`**: one-command launcher. Starts `uv run python -m workers.live_loop` in the background under `caffeinate -di` (Mac stays awake), then runs `streamlit run ui/dashboard.py` in the foreground. `trap` cleans up the background loop on Ctrl+C. Refuses to start if port 8501 is already taken. Logs go to `/tmp/traderbot-loop.log`.
+- README updated to show `./dev-start.sh` as the primary entry point.
+
+The "no decision log" warning is now non-fatal — the dashboard renders the chrome (header + tabs) so the compare tab is usable even before the live loop has produced data.
+
+163/163 tests still green. No new tests for the dashboard tab itself (Streamlit UI is hard to unit-test); the underlying `run_comparison` was indirectly verified by running it programmatically.
+
+**Next:** Either (a) actual paper-soak start now that one command launches everything, or (b) S-25 expectancy/auto-blacklist using the multi-symbol data.
+
+**Blockers:** none.
+
+**New lessons:** none.
+
+---
+
 ## 2026-04-25 (session 22) — Dashboard fixes: fees, auto-refresh, sidebar
 
 User shared an external review of the UI; addressed the three real shortcomings:

@@ -97,11 +97,9 @@ def render_table(results: list[SymbolResult]) -> str:
     return "\n".join(lines)
 
 
-def render_html(results: list[SymbolResult], out_path: Path) -> Path:
-    """Plotly HTML: equity curves per symbol on a shared time axis (normalized to %)."""
-    out_path.parent.mkdir(parents=True, exist_ok=True)
+def make_figure(results: list[SymbolResult]) -> go.Figure:
+    """Plotly figure: equity curves per symbol, normalized to % return vs starting capital."""
     fig = go.Figure()
-
     for r in results:
         eq = r.result.equity_curve
         ts = pd.to_datetime(eq.index, unit="ms", utc=True)
@@ -115,19 +113,42 @@ def render_html(results: list[SymbolResult], out_path: Path) -> Path:
                 hovertemplate=f"<b>{r.symbol}</b> %{{y:+.2f}}%<extra></extra>",
             )
         )
-
     fig.add_hline(y=0, line={"color": "#9ca3af", "width": 1, "dash": "dot"})
     fig.update_layout(
         title="Baseline EMA-cross — equity curves vs starting capital",
         template="plotly_dark",
-        height=600,
+        height=500,
         xaxis_title="Time (UTC)",
         yaxis_title="Return %",
         hovermode="x unified",
         legend={"orientation": "h", "yanchor": "bottom", "y": 1.02},
     )
-    fig.write_html(str(out_path), include_plotlyjs="cdn")
+    return fig
+
+
+def render_html(results: list[SymbolResult], out_path: Path) -> Path:
+    """Persist the figure as standalone HTML for browser-opening from CLI."""
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    make_figure(results).write_html(str(out_path), include_plotlyjs="cdn")
     return out_path
+
+
+def run_comparison(
+    symbols: list[str] | tuple[str, ...],
+    *,
+    days: int,
+    timeframe: str = "1h",
+    config: BacktestConfig | None = None,
+) -> list[SymbolResult]:
+    """One-shot helper for callers (e.g. the dashboard) that want a fresh comparison."""
+    cfg = config or BacktestConfig(initial_cash=INITIAL_CASH)
+    now_ms = int(time.time() * 1000)
+    since_ms = now_ms - days * 24 * 3600 * 1000
+    out: list[SymbolResult] = []
+    for sym in symbols:
+        df = ensure_backfill(sym, timeframe, since_ms)
+        out.append(run_one(sym, df, cfg))
+    return out
 
 
 def _parse_env_symbols() -> tuple[str, ...]:
