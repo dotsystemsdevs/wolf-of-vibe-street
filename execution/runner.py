@@ -209,6 +209,7 @@ class Executor:
                 price=fill.price,
                 notional=fill.notional,
                 slippage_bps=(fill.price / bar.close - 1.0) * 10_000.0,
+                metadata={"fee": fill.fee},
             )
         )
 
@@ -242,6 +243,7 @@ class Executor:
                 notional=fill.notional,
                 rationale=reason,
                 slippage_bps=(1.0 - fill.price / price) * 10_000.0 if price > 0 else 0.0,
+                metadata={"fee": fill.fee},
             )
         )
         self._open_stop = None

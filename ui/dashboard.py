@@ -272,8 +272,14 @@ def _positions_html(positions: list[dict]) -> str:
 
 
 def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
-    st.set_page_config(page_title="traderbot", layout="wide", initial_sidebar_state="collapsed")
+    st.set_page_config(page_title="traderbot", layout="wide", initial_sidebar_state="expanded")
     st.markdown(CSS, unsafe_allow_html=True)
+    # Real auto-refresh — header text claimed it; this makes it true.
+    st.markdown(
+        f"<script>setTimeout(function(){{window.parent.location.reload();}}, "
+        f"{REFRESH_INTERVAL_S * 1000});</script>",
+        unsafe_allow_html=True,
+    )
 
     if not log_path.exists():
         st.warning(f"No decision log at `{log_path}`. Run the live loop and refresh.")

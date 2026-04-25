@@ -41,6 +41,7 @@ def test_event_counts_buckets_by_type() -> None:
 
 
 def test_trades_dataframe_pairs_buy_then_sell() -> None:
+    """No fees in metadata → pnl == gross_pnl."""
     rows = [
         _row(event_type="order_filled", side="buy", price=100.0, quantity=1.0, ts=1000),
         _row(
@@ -55,8 +56,63 @@ def test_trades_dataframe_pairs_buy_then_sell() -> None:
     trades = trades_dataframe(rows)
     assert len(trades) == 1
     assert trades.iloc[0]["pnl"] == pytest.approx(10.0)
+    assert trades.iloc[0]["gross_pnl"] == pytest.approx(10.0)
+    assert trades.iloc[0]["fees"] == 0.0
     assert trades.iloc[0]["return_pct"] == pytest.approx(0.1)
     assert trades.iloc[0]["exit_reason"] == "target_hit"
+
+
+def test_trades_dataframe_subtracts_fees_from_metadata() -> None:
+    """Fee in metadata_json is subtracted from gross to get net pnl."""
+    rows = [
+        _row(
+            event_type="order_filled",
+            side="buy",
+            price=100.0,
+            quantity=10.0,
+            ts=1000,
+            metadata_json='{"fee": 1.0}',
+        ),
+        _row(
+            event_type="order_filled",
+            side="sell",
+            price=110.0,
+            quantity=10.0,
+            ts=2000,
+            rationale="target_hit",
+            metadata_json='{"fee": 1.1}',
+        ),
+    ]
+    trades = trades_dataframe(rows)
+    assert trades.iloc[0]["gross_pnl"] == pytest.approx(100.0)  # (110-100)*10
+    assert trades.iloc[0]["fees"] == pytest.approx(2.1)  # 1.0 + 1.1
+    assert trades.iloc[0]["pnl"] == pytest.approx(97.9)  # 100 - 2.1
+
+
+def test_trades_dataframe_handles_malformed_metadata() -> None:
+    """Bad/missing metadata_json → fee=0, falls back gracefully."""
+    for bad in (None, "", "not-json", "{}", '{"fee": "nope"}'):
+        rows = [
+            _row(
+                event_type="order_filled",
+                side="buy",
+                price=100.0,
+                quantity=1.0,
+                ts=1,
+                metadata_json=bad,
+            ),
+            _row(
+                event_type="order_filled",
+                side="sell",
+                price=110.0,
+                quantity=1.0,
+                ts=2,
+                metadata_json=bad,
+            ),
+        ]
+        trades = trades_dataframe(rows)
+        assert trades.iloc[0]["fees"] == 0.0
+        assert trades.iloc[0]["pnl"] == pytest.approx(10.0)
 
 
 def test_trades_dataframe_handles_dangling_buy() -> None:

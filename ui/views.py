@@ -6,10 +6,27 @@ imports these and renders the dicts/DataFrames they return.
 
 from __future__ import annotations
 
+import json
 from collections import Counter
 from typing import Any
 
 import pandas as pd
+
+
+def _fee_from_row(row: dict[str, Any]) -> float:
+    """Extract `fee` from a row's metadata_json blob; 0.0 if absent (legacy rows)."""
+    raw = row.get("metadata_json")
+    if not raw:
+        return 0.0
+    try:
+        meta = json.loads(raw)
+    except (TypeError, ValueError):
+        return 0.0
+    fee = meta.get("fee", 0.0) if isinstance(meta, dict) else 0.0
+    try:
+        return float(fee)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def event_counts(rows: list[dict[str, Any]]) -> dict[str, int]:
@@ -43,7 +60,10 @@ def trades_dataframe(rows: list[dict[str, Any]]) -> pd.DataFrame:
             qty = float(open_buy["quantity"])
             entry_px = float(open_buy["price"])
             exit_px = float(f["price"])
-            pnl = (exit_px - entry_px) * qty
+            entry_fee = _fee_from_row(open_buy)
+            exit_fee = _fee_from_row(f)
+            gross = (exit_px - entry_px) * qty
+            pnl = gross - entry_fee - exit_fee
             trades.append(
                 {
                     "entry_ts": int(open_buy["timestamp_ms"]),
@@ -52,6 +72,8 @@ def trades_dataframe(rows: list[dict[str, Any]]) -> pd.DataFrame:
                     "entry_price": entry_px,
                     "exit_price": exit_px,
                     "pnl": pnl,
+                    "gross_pnl": gross,
+                    "fees": entry_fee + exit_fee,
                     "return_pct": exit_px / entry_px - 1.0,
                     "exit_reason": f["rationale"] or "",
                 }
@@ -68,6 +90,8 @@ def trades_dataframe(rows: list[dict[str, Any]]) -> pd.DataFrame:
                 "entry_price",
                 "exit_price",
                 "pnl",
+                "gross_pnl",
+                "fees",
                 "return_pct",
                 "exit_reason",
             ]
@@ -103,15 +127,15 @@ def equity_curve(rows: list[dict[str, Any]], initial_cash: float) -> pd.DataFram
     for f in fills:
         price = float(f["price"])
         fill_qty = float(f["quantity"])
+        fee = _fee_from_row(f)
         last_price = price
         if f["side"] == "buy":
-            cost = price * fill_qty
-            cash -= cost
+            cash -= price * fill_qty + fee
             new_qty = qty + fill_qty
             avg_entry = (avg_entry * qty + price * fill_qty) / new_qty if new_qty > 0 else price
             qty = new_qty
         else:
-            cash += price * fill_qty
+            cash += price * fill_qty - fee
             qty -= fill_qty
             if qty <= 0:
                 qty = 0.0

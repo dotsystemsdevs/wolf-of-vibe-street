@@ -53,7 +53,7 @@ def render(log_path: Path, initial_cash: float) -> str:
     out.append("  Trades:             {:>6}".format(s["trades"]))
     out.append("  Wins / losses:      {:>6} / {}".format(s["wins"], s["losses"]))
     out.append("  Win rate:           {:>6.1f} %".format(s["win_rate"] * 100))
-    out.append("  Realized P&L:       ${:>+10.2f}  (gross of fees)".format(s["realized_pnl"]))
+    out.append("  Realized P&L:       ${:>+10.2f}  (net of fees)".format(s["realized_pnl"]))
     out.append(
         "  Ending estimate:    ${:>10,.2f}  ({:+.2f} %)".format(
             s["ending_cash_estimate"], s["ending_return_pct"] * 100

@@ -5,6 +5,25 @@
 
 ---
 
+## 2026-04-25 (session 22) — Dashboard fixes: fees, auto-refresh, sidebar
+
+User shared an external review of the UI; addressed the three real shortcomings:
+
+- **Auto-refresh actually works now.** Header text claimed "auto-refresh 10s" but no JS or Streamlit hook backed it. Added a `<script>setTimeout(reload, 10000)</script>` so the page actually reloads every 10 s.
+- **Sidebar opens by default** (`initial_sidebar_state="expanded"`). The kill-switch toggle was hidden behind a collapsed sidebar — bad for an operational control.
+- **Fees flow through to displayed P&L.** Executor now writes `metadata={"fee": fill.fee}` on every `order_filled`. `trades_dataframe` and `equity_curve` parse it from `metadata_json` and subtract. `pnl` is now net; `gross_pnl` + `fees` are surfaced alongside. Re-replay of 30-day BTC now reads **−1.91 %** end-of-period in the dashboard — matching the live executor exactly (was −0.25 % gross before, a 1.66 pp lie). Report header label corrected from "(gross of fees)" to "(net of fees)".
+- 2 new tests pin fee parsing (well-formed + malformed metadata fallbacks). 163/163 total.
+
+Skipped the other two items the review flagged: single-position assumption (by design for Phase 1) and auth (not relevant for local dev).
+
+**Next:** Resume Phase 2 — S-25 expectancy tracking (auto-blacklist losing symbols) was queued; the multi-symbol comparison from session 21 already gives us the data to act on.
+
+**Blockers:** none.
+
+**New lessons:** none codified, but the "UI claims X, code does Y" mismatch was a real inconsistency caught by external review. Worth a P-** if it bites in a more impactful place later.
+
+---
+
 ## 2026-04-25 (session 21) — Multi-symbol baseline comparison
 
 `backtest/compare.py`: backfills + backtests baseline EMA-cross across multiple symbols, prints a side-by-side table, writes an interactive Plotly HTML to `data/cache/multi_symbol_backtest.html`. Symbols + timeframe + days configurable via `TRADERBOT_*` env vars. Backfills are idempotent — reuses existing parquet if it covers the requested window. 6 new tests; 161/161 total.
