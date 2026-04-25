@@ -6,13 +6,19 @@ Prints high-level stats + last 10 trades. Works with or without an active live l
 
 from __future__ import annotations
 
-import os
+import sys
 from pathlib import Path
 
-import pandas as pd
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
 
-from memory.decision_log import DecisionLog
-from ui.views import summary, trades_dataframe
+import os  # noqa: E402
+
+import pandas as pd  # noqa: E402
+
+from memory.decision_log import DecisionLog  # noqa: E402
+from ui.views import summary, trades_dataframe  # noqa: E402
 
 DEFAULT_LOG_PATH = Path("data/decision_log/traderbot.db")
 

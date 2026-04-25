@@ -8,15 +8,23 @@ the sidebar.
 
 from __future__ import annotations
 
-import os
+import sys
 from pathlib import Path
 
-import pandas as pd
-import streamlit as st
+# Bootstrap: `streamlit run` exec's this file as a script, so the project root is
+# NOT on sys.path. Add it before importing any project module.
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
 
-from memory.decision_log import DecisionLog
-from risk.caps import DEFAULT_KILL_SWITCH_PATH, kill_switch_active
-from ui.views import event_counts, fills_dataframe, summary, trades_dataframe
+import os  # noqa: E402
+
+import pandas as pd  # noqa: E402
+import streamlit as st  # noqa: E402
+
+from memory.decision_log import DecisionLog  # noqa: E402
+from risk.caps import DEFAULT_KILL_SWITCH_PATH, kill_switch_active  # noqa: E402
+from ui.views import event_counts, fills_dataframe, summary, trades_dataframe  # noqa: E402
 
 DEFAULT_DB_PATH = Path("data/decision_log/traderbot.db")
 
