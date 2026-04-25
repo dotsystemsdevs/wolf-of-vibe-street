@@ -255,7 +255,7 @@ def build_from_env() -> tuple[LiveLoop, dict[str, str]]:
 def main() -> None:
     loop, cfg = build_from_env()
     print("=" * 56)
-    print("   traderbot — live loop (paper mode)")
+    print("   🐺 Wolf Of Vibe Street — live loop (paper mode)")
     print("=" * 56)
     for k, v in cfg.items():
         print(f"  {k:22s}  {v}")

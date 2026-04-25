@@ -40,7 +40,7 @@ def render(log_path: Path, initial_cash: float) -> str:
 
     out: list[str] = []
     out.append("=" * 56)
-    out.append("   traderbot — decision-log summary")
+    out.append("   🐺 Wolf Of Vibe Street — decision-log summary")
     out.append("=" * 56)
     out.append(f"  Log file:           {log_path}")
     out.append(f"  Rows:               {s['rows_total']:,}")

@@ -392,7 +392,7 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
         f'<div style="display:flex; justify-content:space-between; align-items:center; '
         f'margin-bottom:8px;">'
         f'<div><span style="font-size:18px; font-weight:700; letter-spacing:0.06em; '
-        f'color:#fbbf24;">TRADING / BOT</span> '
+        f'color:#fbbf24;">🐺 WOLF OF VIBE STREET</span> '
         f'<span class="muted" style="margin-left:12px;">DASHBOARD · paper</span></div>'
         f'<div style="font-size:11px; color:#9ca3af; text-align:right;">'
         f'<div>last fill: <span style="color:#e5e7eb;">{last_bar_str}</span> '
