@@ -5,6 +5,34 @@
 
 ---
 
+## 2026-04-25 (session 25) — Soak health panel for the morning glance
+
+User wants to start a short paper-soak (overnight, check at 09:00) instead of waiting 7 days. Built the morning-check tool.
+
+- `ui/views.py::soak_health(rows, *, bot_running, kill_switch_on, now_ms, ...)` — pure function returning 5 checks, each `{name, status: ok|warn|error, message}`:
+  1. **Bot process** — error if loop not running.
+  2. **Kill switch** — warn if active (intentionally pauses trading).
+  3. **Recent signals** — error if no signal in last 2× expected_bar_seconds + 10 min slack (catches a stuck loop).
+  4. **Tick errors** — count of `order_rejected(tick_error: ...)` in last hour. 0 = ok, 1–2 = warn, 3+ = error.
+  5. **Decision log** — warn if < 5 rows (sanity check, fresh install).
+- 6 new tests pin each path. 177/177 total.
+- Dashboard Overview tab gets a top banner: green/yellow/red ("HEALTHY"/"ATTENTION"/"ISSUES") with grid-laid-out check details. One glance tells the user if last night's run was clean.
+
+**Morning checklist for the user (09:00 tomorrow):**
+1. Open the dashboard (still running from yesterday).
+2. Look at the top banner — green = walk away happy.
+3. If yellow/red, the per-check messages tell you exactly what.
+4. Scroll: equity curve + trade history shows what happened overnight.
+5. "Loop output" panel shows last 30 lines of stdout from the loop process.
+
+**Next:** When user kicks off the soak, they should also (a) verify Telegram is configured if they want push alerts (otherwise heartbeats are silent), (b) leave the laptop on with `caffeinate` taking care of sleep. Both are already wired.
+
+**Blockers:** none.
+
+**New lessons:** none.
+
+---
+
 ## 2026-04-25 (session 24) — Loop control from the dashboard
 
 User requirement: "ingen terminal någonsin, allt allt allt i dashboarden". Done.

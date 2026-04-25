@@ -191,6 +191,121 @@ def open_positions(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     ]
 
 
+def soak_health(
+    rows: list[dict[str, Any]],
+    *,
+    bot_running: bool,
+    kill_switch_on: bool,
+    now_ms: int,
+    expected_bar_seconds: int = 3600,
+    error_window_seconds: int = 3600,
+) -> list[dict[str, str]]:
+    """Soak-readiness checks. Returns a list of {name, status, message} dicts.
+
+    `status` is one of "ok" | "warn" | "error". Designed for a morning glance after a
+    multi-hour overnight run — green = bot did its job, yellow = needs attention,
+    red = something broke.
+
+    Checks:
+      1. bot_process     — `loop_control.status().running` is True
+      2. kill_switch     — kill switch is OFF (warn if ON, since that pauses trading)
+      3. signals_fresh   — last `signal` row within 2× expected_bar_seconds
+      4. tick_errors     — count of `order_rejected(tick_error: ...)` in last hour
+      5. log_has_data    — at least 5 rows in the decision log
+    """
+    out: list[dict[str, str]] = []
+
+    out.append(
+        {
+            "name": "Bot process",
+            "status": "ok" if bot_running else "error",
+            "message": "Live loop is running"
+            if bot_running
+            else "Live loop is NOT running — start it from the sidebar",
+        }
+    )
+
+    out.append(
+        {
+            "name": "Kill switch",
+            "status": "warn" if kill_switch_on else "ok",
+            "message": "Kill switch is ACTIVE — bot will not enter new trades"
+            if kill_switch_on
+            else "Kill switch is OFF — bot may trade",
+        }
+    )
+
+    signal_rows = [r for r in rows if r["event_type"] == "signal"]
+    if not signal_rows:
+        out.append(
+            {
+                "name": "Recent signals",
+                "status": "warn" if bot_running else "ok",
+                "message": "No signals yet — give the loop one full bar interval to produce one",
+            }
+        )
+    else:
+        last_sig_ms = max(int(r["timestamp_ms"]) for r in signal_rows)
+        age_s = (now_ms - last_sig_ms) / 1000
+        threshold_s = expected_bar_seconds * 2 + 600  # 2 bars + 10 min slack
+        if age_s <= threshold_s:
+            out.append(
+                {
+                    "name": "Recent signals",
+                    "status": "ok",
+                    "message": f"Last signal {int(age_s / 60)} min ago "
+                    f"({len(signal_rows)} signals total)",
+                }
+            )
+        else:
+            out.append(
+                {
+                    "name": "Recent signals",
+                    "status": "error",
+                    "message": f"Last signal was {int(age_s / 60)} min ago — "
+                    f"loop may be stuck (expected within {threshold_s // 60} min)",
+                }
+            )
+
+    error_cutoff_ms = now_ms - error_window_seconds * 1000
+    recent_errors = [
+        r
+        for r in rows
+        if r["event_type"] == "order_rejected"
+        and (r["rationale"] or "").startswith("tick_error")
+        and int(r["timestamp_ms"]) >= error_cutoff_ms
+    ]
+    if not recent_errors:
+        out.append(
+            {
+                "name": "Tick errors",
+                "status": "ok",
+                "message": f"No tick errors in last {error_window_seconds // 60} min",
+            }
+        )
+    else:
+        n = len(recent_errors)
+        sample = recent_errors[-1]["rationale"] or ""
+        out.append(
+            {
+                "name": "Tick errors",
+                "status": "warn" if n <= 2 else "error",
+                "message": f"{n} tick error(s) in last {error_window_seconds // 60} min "
+                f"— last: {sample[:60]}",
+            }
+        )
+
+    out.append(
+        {
+            "name": "Decision log",
+            "status": "ok" if len(rows) >= 5 else "warn",
+            "message": f"{len(rows):,} rows logged",
+        }
+    )
+
+    return out
+
+
 def summary(rows: list[dict[str, Any]], initial_cash: float) -> dict[str, Any]:
     """High-level snapshot: trade count, win rate, realized P&L, current cash."""
     trades = trades_dataframe(rows)

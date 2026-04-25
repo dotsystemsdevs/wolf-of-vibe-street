@@ -32,6 +32,7 @@ from ui.views import (  # noqa: E402
     equity_curve,
     event_counts,
     open_positions,
+    soak_health,
     summary,
     trades_dataframe,
 )
@@ -412,6 +413,47 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
     tab_overview, tab_compare = st.tabs(["📊 Overview", "🔬 Backtest compare"])
 
     with tab_overview:
+        # Soak health — green/yellow/red banner so a morning check is one glance.
+        loop_status = loop_control.status()
+        checks = soak_health(
+            rows,
+            bot_running=loop_status.running,
+            kill_switch_on=kill_switch_active(kill_switch_path),
+            now_ms=int(pd.Timestamp.utcnow().timestamp() * 1000),
+        )
+        worst = "ok"
+        for c in checks:
+            if c["status"] == "error":
+                worst = "error"
+                break
+            if c["status"] == "warn" and worst != "error":
+                worst = "warn"
+        banner_color = {"ok": GREEN, "warn": GOLD, "error": RED}[worst]
+        banner_label = {"ok": "HEALTHY", "warn": "ATTENTION", "error": "ISSUES"}[worst]
+        st.markdown(
+            f'<div style="background:#141a26; border:1px solid {banner_color}; '
+            f"border-left:4px solid {banner_color}; border-radius:6px; "
+            f'padding:10px 14px; margin-bottom:10px;">'
+            f'<div style="display:flex; justify-content:space-between; align-items:center;">'
+            f'<span style="font-size:12px; color:#9ca3af; text-transform:uppercase; '
+            f'letter-spacing:0.1em;">Soak status</span>'
+            f'<span style="color:{banner_color}; font-weight:700; font-size:13px; '
+            f'letter-spacing:0.05em;">{banner_label}</span></div>'
+            f'<div style="margin-top:6px; display:grid; '
+            f"grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap:6px; "
+            f'font-size:11px;">'
+            + "".join(
+                '<div><span style="color:'
+                + {"ok": GREEN, "warn": GOLD, "error": RED}[c["status"]]
+                + '">●</span> '
+                f'<span style="color:#e5e7eb;">{c["name"]}</span> '
+                f'<span style="color:#9ca3af;">— {c["message"]}</span></div>'
+                for c in checks
+            )
+            + "</div></div>",
+            unsafe_allow_html=True,
+        )
+
         c1, c2, c3, c4, c5 = st.columns(5)
         c1.metric("Equity", _fmt_money(current_equity), f"{total_return * 100:+.2f} %")
         c2.metric("Cash", _fmt_money(current_cash))

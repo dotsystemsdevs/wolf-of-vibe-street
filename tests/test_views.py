@@ -243,3 +243,86 @@ def test_open_positions_empty_after_full_close() -> None:
         _row(event_type="order_filled", side="sell", price=110.0, quantity=2.0, ts=2000),
     ]
     assert open_positions(rows) == []
+
+
+# --- soak_health ---
+
+
+HOUR_MS = 3_600_000
+
+
+def _by_name(checks: list[dict], name: str) -> dict:
+    return next(c for c in checks if c["name"] == name)
+
+
+def test_soak_health_all_green_when_running_and_recent() -> None:
+    from ui.views import soak_health
+
+    now = 1_000_000_000_000
+    rows = [_row(event_type="signal", ts=now - 10 * 60_000)] * 10  # 10 min ago
+    checks = soak_health(rows, bot_running=True, kill_switch_on=False, now_ms=now)
+    assert _by_name(checks, "Bot process")["status"] == "ok"
+    assert _by_name(checks, "Kill switch")["status"] == "ok"
+    assert _by_name(checks, "Recent signals")["status"] == "ok"
+    assert _by_name(checks, "Tick errors")["status"] == "ok"
+    assert _by_name(checks, "Decision log")["status"] == "ok"
+
+
+def test_soak_health_bot_dead_is_error() -> None:
+    from ui.views import soak_health
+
+    checks = soak_health([], bot_running=False, kill_switch_on=False, now_ms=1)
+    assert _by_name(checks, "Bot process")["status"] == "error"
+
+
+def test_soak_health_kill_switch_on_is_warn() -> None:
+    from ui.views import soak_health
+
+    checks = soak_health([], bot_running=True, kill_switch_on=True, now_ms=1)
+    assert _by_name(checks, "Kill switch")["status"] == "warn"
+
+
+def test_soak_health_stale_signals_is_error() -> None:
+    """Last signal 5h ago on a 1h-bar bot → error (loop probably stuck)."""
+    from ui.views import soak_health
+
+    now = 1_000_000_000_000
+    rows = [_row(event_type="signal", ts=now - 5 * HOUR_MS)]
+    checks = soak_health(
+        rows,
+        bot_running=True,
+        kill_switch_on=False,
+        now_ms=now,
+        expected_bar_seconds=3600,
+    )
+    assert _by_name(checks, "Recent signals")["status"] == "error"
+
+
+def test_soak_health_recent_tick_errors_warn_then_error() -> None:
+    from ui.views import soak_health
+
+    now = 1_000_000_000_000
+    one_err = [
+        _row(
+            event_type="order_rejected", ts=now - 60_000, rationale="tick_error: ConnectionError: x"
+        )
+    ]
+    checks = soak_health(one_err, bot_running=True, kill_switch_on=False, now_ms=now)
+    assert _by_name(checks, "Tick errors")["status"] == "warn"
+
+    many = [
+        _row(event_type="order_rejected", ts=now - 60_000 - i * 1000, rationale=f"tick_error: e{i}")
+        for i in range(5)
+    ]
+    checks = soak_health(many, bot_running=True, kill_switch_on=False, now_ms=now)
+    assert _by_name(checks, "Tick errors")["status"] == "error"
+
+
+def test_soak_health_old_tick_errors_dont_count() -> None:
+    """Errors from > 1h ago don't trip the check — they were yesterday's problem."""
+    from ui.views import soak_health
+
+    now = 1_000_000_000_000
+    rows = [_row(event_type="order_rejected", ts=now - 2 * HOUR_MS, rationale="tick_error: stale")]
+    checks = soak_health(rows, bot_running=True, kill_switch_on=False, now_ms=now)
+    assert _by_name(checks, "Tick errors")["status"] == "ok"
