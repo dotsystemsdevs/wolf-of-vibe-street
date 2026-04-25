@@ -23,6 +23,7 @@ traderbot/
 ├── signals/types.py        # Signal dataclass (validates buy → stop required)
 ├── strategies/baseline_ema_cross.py  # long-only EMA(12,26) cross w/ ATR stops
 ├── risk/sizing.py          # fixed-% risk sizing (default 0.5%, cap 1%)
+├── risk/caps.py            # RiskCaps + check_entry() + kill_switch_active()
 ├── backtest/engine.py      # walk-forward, single-position, cost-aware sim
 ├── backtest/metrics.py     # sharpe, sortino, max_dd, win_rate, BE_WR (S-50)
 ├── data/{state,decision_log,bars,cache}/  # gitignored runtime dirs

@@ -5,6 +5,23 @@
 
 ---
 
+## 2026-04-25 (session 11) — Risk caps + kill switch
+
+- `risk/caps.py` — `RiskCaps`, `RiskState`, `RiskDecision`, `check_entry()`, `kill_switch_active()`. Pure functions; the executor (built in a later session) calls `check_entry()` before any new entry. Caps block entries only — exits are never blocked (a blocked exit could trap an account in a losing position).
+- Check order: kill switch → daily DD → weekly DD → max positions → per-position notional → aggregate notional. Earliest deny wins.
+- Kill switch sources: env `KILL_SWITCH=true` (case-insensitive) OR a sentinel file (`data/state/KILL_SWITCH` by default). Both routes test-covered.
+- 12 tests; 93/93 total. Ruff clean.
+
+**Not wired into the backtest** in this session. Per I-5 the caps live in `execution/`; the backtest currently has no risk-aware entry path because it's single-position by design (concurrency cap and notional cap can never bite at $10k). Once the executor exists (next session), `check_entry()` will be the gate before every order.
+
+**Next:** Either (a) `execution/ccxt_paper.py` — the paper-mode executor that ties signals → caps → simulated fills → decision log, or (b) decision log + heartbeat. The executor naturally pulls the decision-log in with it (every order writes a row), so doing both at once makes sense.
+
+**Blockers:** none.
+
+**New lessons:** none.
+
+---
+
 ## 2026-04-25 (session 10) — End-to-end pipe: strategy + risk + backtest
 
 Phase 1 vertical slice complete. The whole stack — `data → features → strategy → risk → backtest` — runs on the 30-day BTC parquet in <1s.

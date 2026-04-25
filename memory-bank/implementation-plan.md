@@ -34,7 +34,7 @@ Goal: end-to-end pipeline running paper trades on one symbol with one trivial ru
   - [x] No LLM, no ML — just to prove the pipe end-to-end.
 - [ ] **Risk layer:**
   - [x] `risk/sizing.py` — fixed-% sizing on stop distance.
-  - [ ] `risk/caps.py` — max notional, max positions, daily/weekly DD halts, kill switch.
+  - [x] `risk/caps.py` — max notional, max positions, daily/weekly DD halts, kill switch. *(Pure module + 12 tests; will be wired into the executor in the next session — backtest doesn't need it for the single-position baseline.)*
 - [ ] **Execution layer:**
   - [ ] `execution/broker.py` — interface (place, cancel, status, positions).
   - [ ] `execution/ccxt_paper.py` — paper-mode CCXT (uses real prices, simulated fills with slippage model).
