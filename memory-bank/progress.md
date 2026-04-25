@@ -5,6 +5,19 @@
 
 ---
 
+## 2026-04-25 (session 6) — Hosting locked: Mac Mini through Phase 2
+
+- D-18 added to `@design-doc.md`: Mac Mini stays through Phase 1 + 2 paper-soak; migrate to Hetzner CX22 (~€4/mo) when Phase 3 (real money) begins.
+- Phase 0 hosting task ticked. Added Phase 1 prep task: `sudo pmset` 24/7 config + Tailscale reachability + caffeinate wrapper, to be run *before* the 7-day soak — not now (bot doesn't exist yet).
+
+**Next:** First real code — Phase 1 data layer: `execution/ccxt_paper.py` skeleton + Binance OHLCV pull. Will need to `uv add ccxt`.
+
+**Blockers:** Push to GitHub still deferred pending git author identity decision.
+
+**New lessons:** none.
+
+---
+
 ## 2026-04-25 (session 5) — CI green
 
 - `.github/workflows/ci.yml`: GitHub Actions runs `ruff check`, `ruff format --check`, and `pytest --cov` on push & PR to `main`. Matrix: Python 3.12 + 3.13.

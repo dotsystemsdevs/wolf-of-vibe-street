@@ -70,6 +70,7 @@ We do *not* set return targets. Returns are an output of process; we measure pro
 | D-15 | Notifications | **Telegram bot** (free, fast, in-pocket). Slack/Discord later if needed. |
 | D-16 | Version control | **GitHub** (private repo). User must create account. |
 | D-17 | Remote access to Mac Mini | **Tailscale** (free, 3-min setup). |
+| D-18 | Hosting for Phase 1 paper-soak | **Mac Mini, all phases through end of Phase 2.** Migrate to a Linux VPS (Hetzner CX22 ~€4/mo or equivalent) when Phase 3 begins (real money). Mac Mini must be configured for 24/7 operation before the 7-day soak — see Phase 1 prep task in `implementation-plan.md`. |
 
 ---
 

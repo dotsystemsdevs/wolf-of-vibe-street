@@ -13,7 +13,7 @@
 - [x] **Resolve open decisions D-1..D-10 in `@design-doc.md`.** Cannot scaffold without these.
 - [x] Initialize git repo: `git init` + first commit (CLAUDE.md, knowledge.md, experiences.md, memory-bank/).
 - [x] Add `.gitignore` covering `.env`, `data/state/`, `data/decision_log/`, `*.lock` (auto-managed), Python/TS build artefacts.
-- [ ] Decide hosting: local dev → Hetzner/Vultr VPS for Phase 1 paper-soak.
+- [x] Decide hosting: **Mac Mini through Phase 2; migrate to Hetzner VPS at Phase 3** (D-18).
 
 ## Phase 1 — Skeleton + paper-trading baseline
 
@@ -51,6 +51,7 @@ Goal: end-to-end pipeline running paper trades on one symbol with one trivial ru
   - [ ] Telegram bot for alerts.
 - [ ] **Dashboard:**
   - [ ] Streamlit page: positions, P&L, recent signals, recent decisions, kill-switch status.
+- [ ] **Mac Mini 24/7 prep** (D-18) — before starting soak: `sudo pmset -a sleep 0 disksleep 0 powernap 0 autorestart 1 womp 1`, disable display sleep in Settings, ensure Tailscale (D-17) reachable, verify auto-login or `caffeinate` wrapper for the executor process.
 - [ ] **Run paper for 7 days continuous.** Daily review of decision log. Note any divergence.
 - [ ] **Phase 1 retro:** what surprised us? Add P-** / S-** entries to `experiences.md`.
 
