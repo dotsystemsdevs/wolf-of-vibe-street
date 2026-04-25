@@ -5,6 +5,20 @@
 
 ---
 
+## 2026-04-25 (session 5) — CI green
+
+- `.github/workflows/ci.yml`: GitHub Actions runs `ruff check`, `ruff format --check`, and `pytest --cov` on push & PR to `main`. Matrix: Python 3.12 + 3.13.
+- Verified locally: ruff lint pass, format pass (14 files), 13/13 tests, 100% coverage on the (empty) modules.
+- `implementation-plan.md` Phase 1 task 3 ticked.
+
+**Next:** Hosting decision (Mac Mini-only for paper-soak, or provision Hetzner VPS now to avoid mid-Phase-1 migration?). Then first real code: `execution/ccxt_paper.py` skeleton + Binance OHLCV pull (Phase 1 data layer).
+
+**Blockers:** Push to GitHub deferred — git author still defaulted to `diaohm@mac-mini.local`, user needs to set `git config user.email` first if they want commits to bind to `dotsystemsdevs` on GitHub.
+
+**New lessons:** none.
+
+---
+
 ## 2026-04-25 (session 4) — Phase 1 scaffold landed
 
 - `uv init --bare` → `pyproject.toml` with `requires-python>=3.12` (D-1), no deps yet, dev-group with `pytest`, `pytest-cov`, `ruff`. Ruff configured (line-length 100, target py312, rules E/F/I/B/UP/N/SIM).

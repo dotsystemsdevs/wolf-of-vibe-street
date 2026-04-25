@@ -21,7 +21,7 @@ Goal: end-to-end pipeline running paper trades on one symbol with one trivial ru
 
 - [x] Pick package manager (`uv` for Python). Initialize project (flat layout per `CLAUDE.md` §5, not src — top-level mappar = Python-modul).
 - [x] Create folder skeleton per `CLAUDE.md` §5.
-- [ ] Wire `tests/` with pytest (or vitest if TS). CI on push. *(pytest configured + smoke tests green; CI workflow still TODO.)*
+- [x] Wire `tests/` with pytest (or vitest if TS). CI on push. *(pytest + ruff lint + ruff format check on push & PR via `.github/workflows/ci.yml`, matrix: Python 3.12 + 3.13.)*
 - [ ] **Data layer:**
   - [ ] CCXT client wrapper for one exchange (Binance default).
   - [ ] WebSocket bar ingestion → Parquet.
