@@ -46,6 +46,7 @@ class RiskDecision:
 
 
 _OK = RiskDecision(True, "ok")
+_DEFAULT_CAPS = RiskCaps()
 
 
 def kill_switch_active(path: Path = DEFAULT_KILL_SWITCH_PATH) -> bool:
@@ -58,7 +59,7 @@ def kill_switch_active(path: Path = DEFAULT_KILL_SWITCH_PATH) -> bool:
 def check_entry(
     state: RiskState,
     intended_notional_usd: float,
-    caps: RiskCaps = RiskCaps(),
+    caps: RiskCaps | None = None,
 ) -> RiskDecision:
     """Decide whether a *new entry* is allowed. Order of checks is intentional:
 
@@ -70,6 +71,7 @@ def check_entry(
     Caller (the executor) is responsible for *exits* — risk caps don't block exits,
     only entries. A blocked exit could trap an account in a losing position.
     """
+    caps = caps or _DEFAULT_CAPS
     if kill_switch_active(caps.kill_switch_path):
         return RiskDecision(False, "kill_switch")
 
