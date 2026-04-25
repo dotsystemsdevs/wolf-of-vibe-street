@@ -66,10 +66,10 @@ Goal: a non-trivial signal worth running, with self-learning components.
   - [ ] Target: short-horizon directional move (regression or classification).
   - [ ] Train/walk-forward/holdout split.
   - [ ] Output: confidence score in [-1, +1] (S-58).
-- [ ] **Hybrid trigger + LLM evaluator** (S-33):
-  - [ ] Cheap rule triggers candidate setups.
-  - [ ] LLM evaluator (Claude Sonnet default) reasons: trigger context + recent prices + relevant news → execute / skip with rationale.
-  - [ ] LLM rationale stored in decision log.
+- [x] **Hybrid trigger + LLM evaluator** (S-33):
+  - [x] Cheap rule triggers candidate setups. *(`baseline_ema_cross.generate_signals`.)*
+  - [x] LLM evaluator (Claude Opus 4.7 default per skill; configurable model) reasons over trigger context + indicator state → score in [-1, +1] + rationale.
+  - [x] LLM rationale stored in decision log. *(`llm_filtered_signals` rewrites the signal's `rationale` field, which the executor logs verbatim.)*
 - [ ] **Regime model** (S-36, S-53):
   - [ ] HMM or volatility-cluster classifier → regime ∈ {trend_up, trend_down, range, vol_breakout, off}.
   - [ ] Strategy selector keyed on regime.

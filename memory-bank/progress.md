@@ -5,6 +5,27 @@
 
 ---
 
+## 2026-04-25 (session 19) — Phase 2 begins: LLM evaluator (S-33)
+
+First AI layer on top of the baseline. The cheap rule strategy keeps generating candidates; an evaluator now decides which ones to actually take.
+
+- `agents/llm_evaluator.py` — `LLMEvaluator` Protocol, `RuleBasedEvaluator` (deterministic stub for tests/CI), `ClaudeEvaluator` (real Anthropic API). `ClaudeEvaluator` defaults to **`claude-opus-4-7`** per skill rules. System prompt is byte-stable + cached (5-min ephemeral). Adaptive thinking + `output_config.format` JSON schema → typed `Verdict(score, rationale)`.
+- `strategies/llm_filtered.py::llm_filtered_signals(base, df, *, evaluator, threshold=0.3)` routes every `buy` through the evaluator and either passes it (with enriched rationale) or demotes it to `hold` with the rejection reason. `sell` and `hold` pass through untouched (S-33: exits stay rule-based).
+- `_build_context(df, idx, signal)` snapshots the bar's market state (entry, stop %, target %, R/R, recent closes, EMA fast/slow, RSI, ATR) — causal, only uses `df[:idx+1]`.
+- 10 new tests with `RuleBasedEvaluator` — no API call needed. Cache-stability test guards the system prompt from accidental per-request data. 151/151 total.
+- `uv add anthropic` — first non-data-stack dep.
+- Live verify against Claude is gated on `ANTHROPIC_API_KEY` being set; the user's env doesn't have one yet, so live test deferred to next session (or whenever they want to spend a few cents to see Claude's verdicts on the 19 historical buy signals).
+
+**Cost note (when going live):** evaluating one signal is ~500 input + ~300 output tokens at Opus 4.7 prices = ~$0.0099. The 30-day BTC backtest had 19 buys → ~$0.19 to re-evaluate. Real-time at 1h bars on BTC alone = trivial. Caching the system prompt should cut that further on the second-and-on calls within the 5-minute TTL window.
+
+**Next:** Either (a) set `ANTHROPIC_API_KEY` and run the LLM-filtered strategy on the 30-day parquet — see whether the LLM beats / matches / underperforms the baseline's −1.91 %; or (b) keep building Phase 2 — first ML model on the logged data, regime classifier, multi-strategy portfolio. (a) is the more interesting result.
+
+**Blockers:** none.
+
+**New lessons:** none codified — the prompt-caching skill rules from `claude-api` skill landed cleanly. Worth a P-** if we ever ship a system prompt that interpolates a timestamp and tank the cache hit rate.
+
+---
+
 ## 2026-04-25 (session 18) — CLI entry: `python -m workers.live_loop`
 
 - `workers/live_loop.py` gets `build_from_env()` + `main()`. All config via `TRADERBOT_*` env vars (symbol, timeframe, initial cash, risk_pct, poll interval, slippage/commission, heartbeat). Defaults work out of the box for BTC/USDT 1h paper.

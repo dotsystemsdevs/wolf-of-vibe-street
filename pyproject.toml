@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "AI/agent-based crypto trading bot — paper-first, audit-logged"
 requires-python = ">=3.12"
 dependencies = [
+    "anthropic>=0.97.0",
     "ccxt>=4.5.50",
     "pandas>=3.0.2",
     "pyarrow>=24.0.0",

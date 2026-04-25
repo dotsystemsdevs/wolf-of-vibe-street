@@ -33,6 +33,8 @@ traderbot/
 ├── ui/dashboard.py         # Streamlit page — `uv run streamlit run ui/dashboard.py`
 ├── ui/report.py            # text-mode CLI summary — `uv run python -m ui.report`
 ├── tools/notifier.py       # Notifier Protocol + TelegramNotifier + NoOpNotifier
+├── agents/llm_evaluator.py # LLMEvaluator Protocol + ClaudeEvaluator + RuleBasedEvaluator
+├── strategies/llm_filtered.py # wraps any base strategy: routes `buy` through evaluator
 ├── backtest/engine.py      # walk-forward, single-position, cost-aware sim
 ├── backtest/metrics.py     # sharpe, sortino, max_dd, win_rate, BE_WR (S-50)
 ├── data/{state,decision_log,bars,cache}/  # gitignored runtime dirs
@@ -64,6 +66,12 @@ End-to-end pipe (Phase 1 vertical slice):
 - `ui/views.py` are pure summary functions over decision-log rows (event_counts, fills_dataframe, trades_dataframe, summary). Tested. The Streamlit `ui/dashboard.py` is a thin renderer on top — no business logic. Override paths via env: `TRADERBOT_LOG_PATH`, `TRADERBOT_INITIAL_CASH`, `TRADERBOT_KILL_SWITCH_PATH`.
 - **Known dashboard gap**: `trades_dataframe` computes pnl as `(exit - entry) * qty` — gross of fees. Fees are reflected in cash but aren't in `order_filled` rows (no `fee` column). Net P&L therefore reads slightly optimistic in the dashboard vs the actual cash balance. Fix path: add a `fee` column or use metadata_json. Acceptable cosmetic gap for now (~0.2 % on the 30-day BTC test).
 - **Notifier** (`tools/notifier.py`) is a Protocol; `TelegramNotifier` is the production impl, `NoOpNotifier` the test/dev default. `LiveLoop.run()` calls `notify()` on three signals: kill switch state change (edge-triggered, no spam), tick error (caught + logged + notified), and heartbeat (default every hour). `TelegramNotifier` is configured via env (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`); missing creds → silent no-op so dev/CI doesn't need them. HTTP errors are swallowed via `on_error` callback so a Telegram outage cannot kill the bot.
+
+Phase 2 — first AI layer (S-33 hybrid trigger + LLM evaluator):
+- `agents/llm_evaluator.py` — `LLMEvaluator` Protocol + `ClaudeEvaluator` (real Anthropic API) + `RuleBasedEvaluator` (deterministic stub for tests/CI).
+- `ClaudeEvaluator` defaults to `claude-opus-4-7` per skill rules. Cached system prompt (5-min ephemeral, byte-stable per-request → effective cache reads). Adaptive thinking enabled. JSON output via `output_config.format` schema → no parse errors.
+- `strategies/llm_filtered.py::llm_filtered_signals(base, df, *, evaluator, threshold=0.3)` routes every `buy` from a base strategy through the evaluator. Approved buys pass through with `llm({score}): {rationale}` appended to `rationale`; rejected buys become `hold` with `llm rejected({score}): {rationale}` — both end up in the decision log so we can post-mortem exactly which trades the LLM killed and why. `sell` and `hold` pass through untouched (per S-33: exits are not the LLM's job).
+- Tests run with `RuleBasedEvaluator` — no API key needed for CI. Live test against Claude requires `ANTHROPIC_API_KEY` in env.
 
 ---
 
