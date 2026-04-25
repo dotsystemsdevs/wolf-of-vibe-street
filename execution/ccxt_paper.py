@@ -30,7 +30,13 @@ class PaperBroker(Broker):
         self._positions: dict[str, Position] = {}
         self._fills_by_coid: dict[str, Fill] = {}
 
-    def place(self, order: Order, *, mark_price: float | None = None) -> Fill | None:
+    def place(
+        self,
+        order: Order,
+        *,
+        mark_price: float | None = None,
+        timestamp_ms: int | None = None,
+    ) -> Fill | None:
         if order.client_order_id in self._fills_by_coid:
             return self._fills_by_coid[order.client_order_id]
 
@@ -43,7 +49,7 @@ class PaperBroker(Broker):
 
         fill = Fill(
             client_order_id=order.client_order_id,
-            timestamp_ms=self._clock(),
+            timestamp_ms=timestamp_ms if timestamp_ms is not None else self._clock(),
             symbol=order.symbol,
             side=order.side,
             quantity=order.quantity,

@@ -176,7 +176,7 @@ class Executor:
                 notional=notional,
             )
         )
-        fill = self.broker.place(order, mark_price=bar.close)
+        fill = self.broker.place(order, mark_price=bar.close, timestamp_ms=bar.timestamp_ms)
         if fill is None:
             self.log.append(
                 DecisionEvent(
@@ -223,7 +223,7 @@ class Executor:
             quantity=qty,
             order_type="market",
         )
-        fill = self.broker.place(order, mark_price=price)
+        fill = self.broker.place(order, mark_price=price, timestamp_ms=bar.timestamp_ms)
         if fill is None:
             return
         proceeds = fill.price * fill.quantity - fill.fee

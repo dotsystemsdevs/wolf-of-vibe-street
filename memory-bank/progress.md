@@ -5,6 +5,30 @@
 
 ---
 
+## 2026-04-25 (session 17) — Text report + bar-time fill timestamps
+
+User asked when they'd actually see something. Two pieces:
+
+- `ui/report.py` — `uv run python -m ui.report` prints a text summary of the decision log: rows, period, trades, win rate, realized P&L, event distribution, risk-block reasons, last 10 trades. Same numbers as the dashboard, no server required.
+- **Bug fix**: `Broker.place()` now accepts an optional `timestamp_ms` and `Executor.on_bar` passes `bar.timestamp_ms`. Previously fills used wall-clock time, which made historical replays show every trade timestamped to "now" — useless for visual review. Fix is back-compat (param is optional).
+- 139/139 still green.
+
+After re-replaying the 30-day BTC data: the report now shows real trade dates (2026-03-28 → 2026-04-24), 5 wins ALL via `target_hit` (~$94 each), 14 losses split between `stop_hit` and `signal_exit`. The dashboard will show the same when launched.
+
+**To see it**: in the VSCode terminal,
+```
+uv run streamlit run ui/dashboard.py
+```
+or for a quick text view: `uv run python -m ui.report`.
+
+**Next:** CLI entry for the live loop (`python -m workers.live_loop`) so the soak is one command, then ops runbook.
+
+**Blockers:** none.
+
+**New lessons:** none — but worth noting that the "wall-clock vs bar-clock" distinction is something to watch for any future replay/simulation code.
+
+---
+
 ## 2026-04-25 (session 16) — Telegram notifier + LiveLoop alerts
 
 - `tools/notifier.py` — `Notifier` Protocol, `TelegramNotifier`, `NoOpNotifier`. Telegram reads `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` from env; silent no-op if either is missing so dev/CI just works. HTTP errors are caught via an `on_error` callback so a Telegram outage cannot crash the bot.

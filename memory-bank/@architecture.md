@@ -31,6 +31,7 @@ traderbot/
 ├── workers/live_loop.py    # polling-driven LiveLoop.tick() / .run() — bridges replay → live
 ├── ui/views.py             # pure summary functions (testable, no Streamlit dep)
 ├── ui/dashboard.py         # Streamlit page — `uv run streamlit run ui/dashboard.py`
+├── ui/report.py            # text-mode CLI summary — `uv run python -m ui.report`
 ├── tools/notifier.py       # Notifier Protocol + TelegramNotifier + NoOpNotifier
 ├── backtest/engine.py      # walk-forward, single-position, cost-aware sim
 ├── backtest/metrics.py     # sharpe, sortino, max_dd, win_rate, BE_WR (S-50)
