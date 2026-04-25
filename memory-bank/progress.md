@@ -5,6 +5,24 @@
 
 ---
 
+## 2026-04-25 (session 3) — Onboarding done on Mac Mini
+
+- Repo cloned to `/Users/diaohm/Desktop/trade/traderbot/`.
+- Hardware verified: **Mac Mini M1 (Macmini9,1), 8 GB RAM, macOS 26.2 Tahoe** — *not* the Intel 2018 documented in D-11. Updated `@design-doc.md` D-11 accordingly. 8 GB constraint and D-14 (no local LLMs) still hold.
+- Prerequisites verified: Xcode CLI ✓, Homebrew ✓, git 2.50.1 ✓, uv 0.10.4 ✓, Python 3.14.2 ✓.
+- Fixed Homebrew permissions (`sudo chown -R diaohm /opt/homebrew ...` after macOS upgrade left dirs not writable).
+- Installed `ta-lib 0.6.4` via brew.
+- GitHub: confirmed `dotsystemsdevs` is user's account (D-16 satisfied).
+- Telegram: not yet set up — deferred until needed in Phase 1 §Monitor.
+
+**Next:** scaffold the project per Phase 1 task 1 in `implementation-plan.md` — `uv init` + folder skeleton per `CLAUDE.md` §5.
+
+**Blockers:** none.
+
+**New lessons:** none.
+
+---
+
 ## 2026-04-25 (session 2) — All design decisions locked
 
 User answered the open questions. All of D-1..D-10 plus 7 bonus decisions (D-11..D-17) now locked in `@design-doc.md` §3.

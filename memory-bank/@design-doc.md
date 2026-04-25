@@ -63,7 +63,7 @@ We do *not* set return targets. Returns are an output of process; we measure pro
 
 | # | Decision | **Locked choice** |
 |---|---|---|
-| D-11 | Hosting | **User's existing Mac Mini 2018 (i3-8100B, 8GB, 256GB, Intel x86, macOS Ventura)** |
+| D-11 | Hosting | **User's Mac Mini M1 (Apple Silicon, Macmini9,1, 8GB RAM, macOS 26.2 Tahoe).** Note: design originally assumed 2018 Intel i3 — actual machine is M1, materially faster, but 8 GB RAM constraint (and therefore D-14 "no local LLMs") still applies. |
 | D-12 | Live capital posture | **Start small, ramp gradually.** Fas 3 calibration: €200-500 cap. After 30 trades + 4 weeks → scale to €1-2k if parity holds. After 6 months across regimes → scale further on metric-based gates. Risk math = percentages of bankroll, not absolutes. |
 | D-13 | First symbol(s) | **Fas 1: BTC/USDT only.** Fas 2: add ETH/USDT, SOL/USDT. Fas 3: top-N by 30-day volume, systematic universe (S-56). |
 | D-14 | Local LLMs (Ollama etc.) | **No.** 8GB RAM on Mac Mini insufficient. Use cloud APIs (Anthropic/OpenAI). |
