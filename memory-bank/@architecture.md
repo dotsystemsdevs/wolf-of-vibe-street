@@ -35,6 +35,7 @@ traderbot/
 ├── tools/notifier.py       # Notifier Protocol + TelegramNotifier + NoOpNotifier
 ├── agents/llm_evaluator.py # LLMEvaluator Protocol + ClaudeEvaluator + RuleBasedEvaluator
 ├── strategies/llm_filtered.py # wraps any base strategy: routes `buy` through evaluator
+├── backtest/compare.py     # multi-symbol comparison runner — terminal table + Plotly HTML
 ├── backtest/engine.py      # walk-forward, single-position, cost-aware sim
 ├── backtest/metrics.py     # sharpe, sortino, max_dd, win_rate, BE_WR (S-50)
 ├── data/{state,decision_log,bars,cache}/  # gitignored runtime dirs

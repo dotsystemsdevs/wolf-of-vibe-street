@@ -5,6 +5,32 @@
 
 ---
 
+## 2026-04-25 (session 21) — Multi-symbol baseline comparison
+
+`backtest/compare.py`: backfills + backtests baseline EMA-cross across multiple symbols, prints a side-by-side table, writes an interactive Plotly HTML to `data/cache/multi_symbol_backtest.html`. Symbols + timeframe + days configurable via `TRADERBOT_*` env vars. Backfills are idempotent — reuses existing parquet if it covers the requested window. 6 new tests; 161/161 total.
+
+**Live result, 30 days × 1h, baseline EMA(12,26):**
+
+| Symbol | Trades | WR | Strategy | Buy-and-hold | Diff | Sharpe | MaxDD |
+|---|---|---|---|---|---|---|---|
+| BTC/USDT | 19 | 26.3% | **−1.82%** | +12.06% | −13.87pp | −2.73 | 3.37% |
+| **ETH/USDT** | 13 | **46.2%** | **+2.22%** | +11.73% | −9.51pp | **+3.27** | 1.49% |
+| SOL/USDT | 12 | 16.7% | −2.90% | −1.16% | −1.74pp | −4.81 | 3.08% |
+
+Real cross-symbol behavior emerges: **ETH is the only symbol where the strategy made money** (Sharpe +3.27, lowest DD), and underperformed buy-and-hold by the smallest margin. BTC strong uptrend → strategy whipsawed (cut winners short). SOL ranged sideways → all stops + signal exits, no targets hit.
+
+**This is S-25 in action** (per-symbol expectancy tracking + dynamic blacklist). ETH is a candidate symbol for this strategy; BTC + SOL would be auto-disabled if S-25 was implemented. Worth building next.
+
+The strategy still **underperforms buy-and-hold on every symbol** — exactly what S-50 (BE_WR check) and S-30 (boring + alive > clever + dead) predicted for a baseline. The pipeline produces honest numbers; future ML/LLM layers must beat these.
+
+**Next:** Either (a) implement S-25 expectancy tracking + auto-blacklist (small, concrete), or (b) the canary bot (S-37 — known-bad HFT strategy validates parity continuously), or (c) start the actual paper soak.
+
+**Blockers:** none.
+
+**New lessons:** none — but the per-symbol number spread is the strongest signal yet that single-symbol assumptions are bad. Phase 2 multi-strategy + per-symbol gating becomes load-bearing.
+
+---
+
 ## 2026-04-25 (session 20) — Dashboard: rich dark-themed rebuild
 
 User said the previous dashboard looked "missig" / too plain and shared 6 reference screenshots (TRADING/BOT-style with KPI cards + equity curve + positions panel + live log). Rebuilt to match that aesthetic.

@@ -76,7 +76,7 @@ Goal: a non-trivial signal worth running, with self-learning components.
 - [ ] **Multi-strategy portfolio:**
   - [ ] At least one momentum + one mean-reversion strategy.
   - [ ] Capital allocation by regime.
-- [ ] **Per-symbol expectancy tracking + dynamic blacklist** (S-25).
+- [ ] **Per-symbol expectancy tracking + dynamic blacklist** (S-25). *(First evidence in session 21 multi-symbol backtest: ETH +2.2%, BTC −1.8%, SOL −2.9% — clear ETH-favored skew on baseline EMA-cross over the same 30 days.)*
 - [ ] **Phase 2 retro.**
 
 ## Phase 3 — Multi-agent depth + live calibration
