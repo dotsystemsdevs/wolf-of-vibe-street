@@ -5,6 +5,23 @@
 
 ---
 
+## 2026-04-25 (session 8) — Backfill + Parquet store
+
+- `uv add pandas pyarrow` (numpy 2.4.4, pandas 3.0.2, pyarrow 24.0.0).
+- `data/backfill.py` — `backfill_ohlcv` paginates `fetch_ohlcv` from `since_ms` until end-of-data or `until_ms`. Dedups overlapping timestamps; defensive against no-progress loops; explicit `chunk_size 1..1000`; optional `sleep_s` between pages.
+- `data/store.py` — `bars_path()` canonical layout `data/bars/{exchange}/{SYM_USDT}/{tf}.parquet`. `save_bars()` is idempotent (merges + dedups against existing file). `load_bars()` returns `list[Bar]`.
+- Renamed `data/binance.py::_OHLCVClient` → `OHLCVClient` (now a public Protocol shared with backfill).
+- Tests: 6 backfill (happy pagination, until_ms trim, empty, dedup, 6× invalid-input parametrize, network error) + 5 store (round-trip, merge dedup, missing-file, invalid symbol, canonical path). **38/38 total.**
+- Live verify: pulled 30 days BTC/USDT 1h from Binance → 720 rows, written to Parquet (34 KB), reloaded byte-identical.
+
+**Next:** Either (a) the WS-stream piece for real-time bars, or (b) features layer (`features/compute.py` returns/EMA/RSI/ATR over the 30 days we now have on disk) which unblocks the EMA-cross strategy. Backtest-path (b) is the more direct unblocker for end-to-end Phase 1.
+
+**Blockers:** none.
+
+**New lessons:** none.
+
+---
+
 ## 2026-04-25 (session 7) — First real code: Binance OHLCV fetcher
 
 - `uv add ccxt` → ccxt 4.5.50 (first non-dev dep).

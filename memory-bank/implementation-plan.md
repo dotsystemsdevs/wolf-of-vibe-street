@@ -25,7 +25,7 @@ Goal: end-to-end pipeline running paper trades on one symbol with one trivial ru
 - [ ] **Data layer:**
   - [x] CCXT client wrapper for one exchange (Binance default). *(`data/binance.py` — OHLCV REST fetch with validation + injectable client.)*
   - [ ] WebSocket bar ingestion → Parquet.
-  - [ ] Backfill historical bars (5 years if available).
+  - [x] Backfill historical bars (5 years if available). *(`data/backfill.py` paginates; `data/store.py` writes idempotent Parquet. Verified 30d×1h BTC/USDT round-trip; 5y pull is now a one-shot script away.)*
 - [ ] **Features layer:**
   - [ ] `features/compute.py` — single source of truth, importable from train/backtest/live (I-2).
   - [ ] First few features: returns, EMA, RSI, ATR, volatility regime label.

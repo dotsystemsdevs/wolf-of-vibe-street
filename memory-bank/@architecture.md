@@ -16,13 +16,21 @@ traderbot/
 ├── memory-bank/            # @architecture, @design-doc, implementation-plan, progress
 ├── agents/ strategies/ signals/ features/ execution/ risk/ backtest/
 ├── memory/ tools/ api/ ui/ workers/   # all empty modules with __init__.py
-├── data/binance.py         # OHLCV fetcher (CCXT, public REST) ← FIRST REAL CODE
+├── data/binance.py         # OHLCV fetcher (CCXT, public REST)
+├── data/backfill.py        # paginated historical OHLCV
+├── data/store.py           # Parquet save/load + canonical bars_path()
 ├── data/{state,decision_log,bars,cache}/  # gitignored runtime dirs
+│   └── bars/binance/BTC_USDT/1h.parquet (local — 30 days, 720 rows, 34 KB)
 ├── config/live/            # gitignored live-config dir
 └── tests/test_smoke.py     # 13 passing tests: every module imports + Python version
 ```
 
-First real module: `data/binance.py` — typed OHLCV fetcher (`fetch_ohlcv(symbol, timeframe, limit) -> list[Bar]`) with input validation and an injectable client for tests. Verified live against Binance public API.
+Data layer (read-only):
+- `data/binance.py` — typed `fetch_ohlcv(symbol, timeframe, limit) -> list[Bar]`. Injectable `OHLCVClient` Protocol for tests.
+- `data/backfill.py` — `backfill_ohlcv(..., since_ms, until_ms, chunk_size, sleep_s)` paginates until end-of-data or `until_ms`. Dedups overlapping pages by timestamp.
+- `data/store.py` — Parquet save/load. `bars_path(exchange, symbol, timeframe)` → canonical `data/bars/{exchange}/{symbol_with_underscore}/{tf}.parquet`. `save_bars` is idempotent: merges with existing file, dedups, sorts.
+
+All verified live against Binance public REST. No auth used. No order-placement code anywhere yet.
 
 ---
 

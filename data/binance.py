@@ -20,7 +20,7 @@ class Bar(TypedDict):
     volume: float
 
 
-class _OHLCVClient(Protocol):
+class OHLCVClient(Protocol):
     def fetch_ohlcv(
         self, symbol: str, timeframe: str = ..., since: int | None = ..., limit: int | None = ...
     ) -> list[list[float]]: ...
@@ -31,7 +31,7 @@ def fetch_ohlcv(
     timeframe: str = "1h",
     limit: int = 500,
     *,
-    client: _OHLCVClient | None = None,
+    client: OHLCVClient | None = None,
 ) -> list[Bar]:
     """Fetch OHLCV bars from Binance.
 
