@@ -1,0 +1,108 @@
+# implementation-plan.md — Ordered Task List
+
+> The next thing to do, always. Cross off as we ship.
+> When in doubt, work top-to-bottom. Don't skip to "fun" tasks before foundations.
+
+---
+
+## Phase 0 — Setup & decisions (NOW)
+
+- [x] Compile `knowledge.md` (domain).
+- [x] Compile `experiences.md` (pitfalls + success factors).
+- [x] Set up `CLAUDE.md` + `memory-bank/`.
+- [ ] **Resolve open decisions D-1..D-10 in `@design-doc.md`.** Cannot scaffold without these.
+- [ ] Initialize git repo: `git init` + first commit (CLAUDE.md, knowledge.md, experiences.md, memory-bank/).
+- [ ] Add `.gitignore` covering `.env`, `data/state/`, `data/decision_log/`, `*.lock` (auto-managed), Python/TS build artefacts.
+- [ ] Decide hosting: local dev → Hetzner/Vultr VPS for Phase 1 paper-soak.
+
+## Phase 1 — Skeleton + paper-trading baseline
+
+Goal: end-to-end pipeline running paper trades on one symbol with one trivial rule, with full audit trail.
+
+- [ ] Pick package manager (`uv` for Python). Initialize project with src layout.
+- [ ] Create folder skeleton per `CLAUDE.md` §5.
+- [ ] Wire `tests/` with pytest (or vitest if TS). CI on push.
+- [ ] **Data layer:**
+  - [ ] CCXT client wrapper for one exchange (Binance default).
+  - [ ] WebSocket bar ingestion → Parquet.
+  - [ ] Backfill historical bars (5 years if available).
+- [ ] **Features layer:**
+  - [ ] `features/compute.py` — single source of truth, importable from train/backtest/live (I-2).
+  - [ ] First few features: returns, EMA, RSI, ATR, volatility regime label.
+- [ ] **Strategy layer:**
+  - [ ] `strategies/baseline_ema_cross.py` — trivial EMA crossover. Outputs `{symbol, side, conviction, stop, target}`.
+  - [ ] No LLM, no ML — just to prove the pipe end-to-end.
+- [ ] **Risk layer:**
+  - [ ] `risk/sizing.py` — fixed-% sizing on stop distance.
+  - [ ] `risk/caps.py` — max notional, max positions, daily/weekly DD halts, kill switch.
+- [ ] **Execution layer:**
+  - [ ] `execution/broker.py` — interface (place, cancel, status, positions).
+  - [ ] `execution/ccxt_paper.py` — paper-mode CCXT (uses real prices, simulated fills with slippage model).
+  - [ ] Idempotent client_order_id.
+  - [ ] Reconcile-on-startup logic (P-11).
+- [ ] **Backtest layer:**
+  - [ ] Walk-forward harness with realistic costs (commission + spread + slippage stress test).
+  - [ ] Output: per-symbol P&L attribution (S-49), Sharpe, Sortino, max DD, BE_WR check (S-50).
+- [ ] **Decision log:**
+  - [ ] Append-only SQLite table. Every signal + order + fill writes a row with full rationale.
+- [ ] **Monitor:**
+  - [ ] Heartbeat from each worker.
+  - [ ] WS-disconnect detection → pause new orders.
+  - [ ] Telegram bot for alerts.
+- [ ] **Dashboard:**
+  - [ ] Streamlit page: positions, P&L, recent signals, recent decisions, kill-switch status.
+- [ ] **Run paper for 7 days continuous.** Daily review of decision log. Note any divergence.
+- [ ] **Phase 1 retro:** what surprised us? Add P-** / S-** entries to `experiences.md`.
+
+## Phase 2 — Intelligence layer
+
+Goal: a non-trivial signal worth running, with self-learning components.
+
+- [ ] **Canary bot** running in parallel — known-bad high-frequency strategy, validates live-vs-backtest parity continuously (S-37).
+- [ ] **First ML model** trained on Phase 1 logged data:
+  - [ ] Target: short-horizon directional move (regression or classification).
+  - [ ] Train/walk-forward/holdout split.
+  - [ ] Output: confidence score in [-1, +1] (S-58).
+- [ ] **Hybrid trigger + LLM evaluator** (S-33):
+  - [ ] Cheap rule triggers candidate setups.
+  - [ ] LLM evaluator (Claude Sonnet default) reasons: trigger context + recent prices + relevant news → execute / skip with rationale.
+  - [ ] LLM rationale stored in decision log.
+- [ ] **Regime model** (S-36, S-53):
+  - [ ] HMM or volatility-cluster classifier → regime ∈ {trend_up, trend_down, range, vol_breakout, off}.
+  - [ ] Strategy selector keyed on regime.
+- [ ] **Multi-strategy portfolio:**
+  - [ ] At least one momentum + one mean-reversion strategy.
+  - [ ] Capital allocation by regime.
+- [ ] **Per-symbol expectancy tracking + dynamic blacklist** (S-25).
+- [ ] **Phase 2 retro.**
+
+## Phase 3 — Multi-agent depth + live calibration
+
+Goal: agent debate where useful, and small real-money calibration.
+
+- [ ] **Multi-agent layer** (TradingAgents-style):
+  - [ ] Bull/Bear researcher pair on top contested setups.
+  - [ ] Risk Manager agent as final veto.
+  - [ ] Persistent memory: agents read past decisions on the same ticker (S-04).
+- [ ] **MCP-expose** key tools (read positions, place order, run backtest, query memory) so Claude Code / Desktop can drive the bot in dev (S-03).
+- [ ] **Provider abstraction** for LLMs: switch Claude / GPT / Gemini / DeepSeek / Ollama via env (S-02).
+- [ ] **Tiered model split** (S-35): Haiku for orchestration, mini-class for tool-calling, Sonnet/Opus for analysis.
+- [ ] **Public signal publishing** (optional) — register on `ai4trade.ai`, post strategies + operations.
+- [ ] **Live small** — €500 cap, first 30 trades tagged "calibration" (S-55).
+- [ ] **Live calibration retro.** Measure paper→live gap. Decide whether to scale or fix.
+
+## Phase 4+ — TBD
+
+Decided after Phase 3 retro. Likely candidates: equities path (Alpaca), options strategies, on-chain integrations, multi-user.
+
+---
+
+## Working agreement
+
+- One Phase 1 task per session unless trivial. Don't try to do five at once.
+- Every task ends with: `progress.md` update + tests green + (if new lesson) `experiences.md` entry.
+- If a task is blocked, move to the next; document the blocker in `progress.md`.
+
+---
+
+*Last updated: 2026-04-25.*

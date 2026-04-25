@@ -1,0 +1,97 @@
+# --- Secrets — NEVER commit ---
+.env
+.env.*
+!.env.example
+secrets/
+credentials/
+*.pem
+*.key
+
+# --- Trading state — runtime, never commit ---
+data/state/
+data/decision_log/
+data/bars/
+data/cache/
+config/live/
+
+# --- ML artifacts — regeneratable, too heavy ---
+models/*.pkl
+models/*.joblib
+models/*.pt
+models/*.bin
+models/*.onnx
+
+# --- Logs ---
+*.log
+logs/
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual envs
+.venv/
+venv/
+env/
+ENV/
+
+# Test / coverage
+.tox/
+.coverage
+.coverage.*
+.cache
+.pytest_cache/
+htmlcov/
+.hypothesis/
+.mypy_cache/
+.ruff_cache/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# --- Node / TS (in case we add a React frontend later) ---
+node_modules/
+dist/
+.next/
+.turbo/
+*.tsbuildinfo
+
+# --- Editors / IDE ---
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# --- macOS ---
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# --- Windows ---
+Thumbs.db
+Desktop.ini
+
+# --- Misc ---
+*.bak
+*.tmp
+.streamlit/secrets.toml
