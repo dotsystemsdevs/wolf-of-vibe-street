@@ -30,6 +30,7 @@ from risk.caps import DEFAULT_KILL_SWITCH_PATH, kill_switch_active  # noqa: E402
 from tools import env_config, loop_control  # noqa: E402
 from tools.notifier import TelegramNotifier  # noqa: E402
 from ui.views import (  # noqa: E402
+    day_pnl,
     equity_curve,
     event_counts,
     open_positions,
@@ -48,42 +49,163 @@ GOLD = "#fbbf24"
 
 CSS = """
 <style>
-:root { --green: #22c55e; --red: #ef4444; --grey: #6b7280; --gold: #fbbf24; }
-
-div[data-testid="stMetric"] {
-    background: #141a26;
-    border: 1px solid #1f2937;
-    border-radius: 8px;
-    padding: 14px 16px;
-    box-shadow: 0 1px 0 rgba(255,255,255,0.04) inset;
+:root {
+  --green: #22c55e;
+  --red: #ef4444;
+  --grey: #6b7280;
+  --gold: #fbbf24;
+  --orange: #fb923c;
+  --bg: #0a0e15;
+  --card: #0f1623;
+  --border: #1f2937;
+  --text: #e5e7eb;
 }
-div[data-testid="stMetricLabel"] { color: #9ca3af; font-size: 11px;
-    text-transform: uppercase; letter-spacing: 0.08em; }
-div[data-testid="stMetricValue"] { font-size: 26px; font-weight: 600; color: #e5e7eb; }
-div[data-testid="stMetricDelta"] { font-size: 13px; }
 
+.stApp { background: var(--bg) !important; }
+
+/* --- Brand title (Wolf Of Wall Street energy) --- */
+.brand {
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 22px; font-weight: 900; letter-spacing: 0.02em;
+  color: var(--text);
+}
+.brand .accent { color: var(--gold); }
+.brand .sub { color: var(--grey); font-size: 12px; font-weight: 500;
+  letter-spacing: 0.18em; margin-left: 12px; text-transform: uppercase; }
+
+/* --- KPI cards: gold top-border, mono numbers --- */
+.kpi {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-top: 2px solid var(--accent, var(--orange));
+  border-radius: 4px;
+  padding: 14px 18px;
+  height: 100%;
+}
+.kpi .label {
+  font-size: 10px; color: #9ca3af;
+  text-transform: uppercase; letter-spacing: 0.14em;
+  margin-bottom: 8px;
+}
+.kpi .value {
+  font-family: "SF Mono", Menlo, monospace;
+  font-size: 28px; font-weight: 700; line-height: 1.0;
+  color: var(--text); letter-spacing: -0.01em;
+}
+.kpi .delta {
+  font-size: 11px; color: #9ca3af;
+  margin-top: 6px; letter-spacing: 0.04em;
+}
+.kpi.green   { --accent: var(--green); }
+.kpi.green   .value { color: var(--green); }
+.kpi.red     { --accent: var(--red); }
+.kpi.red     .value { color: var(--red); }
+.kpi.gold    { --accent: var(--gold); }
+.kpi.gold    .value { color: var(--gold); }
+.kpi.orange  { --accent: var(--orange); }
+.kpi.white   { --accent: #e5e7eb; }
+
+/* --- Panel chrome (orange section labels) --- */
+.panel-title {
+  font-size: 10px; color: var(--orange);
+  text-transform: uppercase; letter-spacing: 0.16em;
+  font-weight: 700;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+  display: flex; justify-content: space-between; align-items: center;
+}
+.panel-title .right { color: #6b7280; font-weight: 500; letter-spacing: 0.06em; }
+.panel {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  margin-top: 6px;
+}
+.panel .body { padding: 8px 4px; }
+
+/* --- Action badges (BUY green / CLOSE red) --- */
+.act {
+  display: inline-block; padding: 3px 10px; border-radius: 3px;
+  font-size: 10px; font-weight: 800; letter-spacing: 0.08em;
+  font-family: "SF Mono", Menlo, monospace;
+}
+.act-buy   { background: rgba(34,197,94,0.18); color: var(--green); }
+.act-close { background: rgba(239,68,68,0.18); color: var(--red); }
+.act-stop  { background: rgba(239,68,68,0.10); color: #fca5a5; }
+.act-tgt   { background: rgba(34,197,94,0.10); color: #86efac; }
+
+/* --- Tables --- */
+.t {
+  width: 100%; border-collapse: collapse;
+  font-family: "SF Mono", Menlo, monospace;
+  font-size: 11px;
+}
+.t thead th {
+  font-size: 9px; color: #6b7280;
+  text-transform: uppercase; letter-spacing: 0.10em;
+  text-align: left; padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+}
+.t tbody td {
+  padding: 9px 10px; border-bottom: 1px solid #1a2330;
+  color: var(--text);
+}
+.t tbody tr:hover { background: rgba(255,255,255,0.02); }
+.t .num { text-align: right; font-variant-numeric: tabular-nums; }
+.t .pos { color: var(--green); font-weight: 600; }
+.t .neg { color: var(--red);   font-weight: 600; }
+.t .muted { color: #6b7280; }
+
+/* --- Live log --- */
+.live-log {
+  background: var(--bg);
+  font-family: "SF Mono", Menlo, monospace;
+  font-size: 11px; line-height: 1.65;
+  padding: 8px 14px;
+  max-height: 380px; overflow-y: auto;
+  color: #d1d5db;
+}
+.live-log .ts   { color: #6b7280; }
+.live-log .info { color: #93c5fd; }
+.live-log .ok   { color: var(--green); }
+.live-log .err  { color: var(--red); }
+.live-log .warn { color: var(--gold); }
+.live-log .sym  { color: var(--orange); }
+
+/* --- Footer disclaimer --- */
+.footer {
+  margin-top: 18px; padding: 10px 14px;
+  border-top: 1px solid var(--border);
+  display: flex; justify-content: space-between;
+  font-family: "SF Mono", Menlo, monospace;
+  font-size: 10px; color: #6b7280;
+  letter-spacing: 0.10em; text-transform: uppercase;
+}
+
+/* --- Status dot (header) --- */
+.dot { display: inline-block; width: 8px; height: 8px;
+  border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+.dot-green { background: var(--green); box-shadow: 0 0 6px var(--green); }
+.dot-red   { background: var(--red);   box-shadow: 0 0 6px var(--red); }
+
+/* Hide Streamlit chrome we don't want */
+header[data-testid="stHeader"] { background: transparent; }
+.stDeployButton { display: none; }
+.muted { color: #6b7280; font-size: 11px; }
 .section-title {
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 0.12em;
-    color: #9ca3af;
-    margin: 16px 0 6px 0;
-    padding-bottom: 4px;
-    border-bottom: 1px solid #1f2937;
+  font-size: 10px; color: var(--orange); text-transform: uppercase;
+  letter-spacing: 0.14em; font-weight: 700;
+  margin: 14px 0 6px 0; padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
 }
-
-.badge { display: inline-block; padding: 2px 8px; border-radius: 4px;
-    font-size: 11px; font-weight: 700; letter-spacing: 0.04em; }
-.badge-buy  { background: rgba(34,197,94,0.15);  color: var(--green); }
-.badge-sell { background: rgba(239,68,68,0.15);  color: var(--red); }
-.badge-stop { background: rgba(239,68,68,0.10);  color: #fca5a5; }
-.badge-tgt  { background: rgba(34,197,94,0.10);  color: #86efac; }
-.badge-exit { background: rgba(107,114,128,0.20); color: var(--grey); }
-
 .kill-on  { color: var(--red);   font-weight: 700; }
 .kill-off { color: var(--green); font-weight: 700; }
-.muted    { color: #6b7280; font-size: 11px; }
-
+.badge { display: inline-block; padding: 2px 8px; border-radius: 4px;
+    font-size: 11px; font-weight: 700; letter-spacing: 0.04em; }
+.badge-stop { background: rgba(239,68,68,0.10); color: #fca5a5; }
+.badge-tgt  { background: rgba(34,197,94,0.10); color: #86efac; }
+.badge-exit { background: rgba(107,114,128,0.20); color: var(--grey); }
 .log-line { font-family: "SF Mono", Menlo, monospace; font-size: 11px;
     padding: 2px 0; color: #d1d5db; line-height: 1.4; }
 .log-time { color: #6b7280; }
@@ -91,9 +213,6 @@ div[data-testid="stMetricDelta"] { font-size: 13px; }
 .log-sell { color: var(--red); }
 .log-block{ color: #fbbf24; }
 .log-sig  { color: #60a5fa; }
-
-.stDataFrame { font-size: 12px; }
-header[data-testid="stHeader"] { background: transparent; }
 </style>
 """
 
@@ -158,48 +277,52 @@ def _badge(label: str, kind: str) -> str:
     return f'<span class="badge badge-{kind}">{label}</span>'
 
 
-def _trades_table_html(trades: pd.DataFrame) -> str:
-    if trades.empty:
-        return '<div class="muted">No completed trades yet.</div>'
-    rows_html: list[str] = []
-    for _, t in trades.tail(15).iloc[::-1].iterrows():
+def _trades_table_html(trades: pd.DataFrame, fills: pd.DataFrame | None = None) -> str:
+    """Reference-style: TIME · ACTION badge · SYMBOL · QTY · DETAILS.
+
+    DETAILS encodes everything secondary in one column: SL/TP for opens, exit-reason
+    + P&L % for closes. Compact + scannable like the reference image.
+    """
+    if trades.empty and (fills is None or fills.empty):
+        return '<div class="muted" style="padding:14px;">No trades or fills yet.</div>'
+
+    items: list[tuple[int, str, str, float, str]] = []
+    for _, t in trades.tail(60).iterrows():
         pnl = float(t["pnl"])
-        pnl_color = GREEN if pnl > 0 else (RED if pnl < 0 else GREY)
         ret = float(t["return_pct"]) * 100
-        reason = t["exit_reason"] or ""
-        if "stop" in reason:
-            badge = _badge("STOP", "stop")
-        elif "target" in reason:
-            badge = _badge("TGT", "tgt")
-        else:
-            badge = _badge("EXIT", "exit")
+        reason = (t["exit_reason"] or "exit").replace("_", "-")
+        details = (
+            f"{reason} · ${float(t['exit_price']):,.2f} "
+            f'<span class="{"pos" if pnl >= 0 else "neg"}">P&amp;L {pnl:+,.2f} ({ret:+.2f}%)</span>'
+        )
+        items.append((int(t["exit_ts"]), "CLOSE", "BTC/USDT", float(t["qty"]), details))
+        details_buy = (
+            f"SL ${float(t['entry_price']) * 0.97:,.2f} / TP ${float(t['entry_price']) * 1.04:,.2f}"
+        )
+        items.append((int(t["entry_ts"]), "BUY", "BTC/USDT", float(t["qty"]), details_buy))
+
+    items.sort(key=lambda x: -x[0])
+    items = items[:25]
+
+    rows_html: list[str] = []
+    for ts, action, sym, qty, details in items:
+        act_cls = "act-buy" if action == "BUY" else "act-close"
         rows_html.append(
-            f'<tr style="border-bottom:1px solid #1f2937;">'
-            f'<td style="padding:6px 8px; color:#9ca3af;">{_ts_to_str(int(t["entry_ts"]))}</td>'
-            f'<td style="padding:6px 8px; color:#9ca3af;">{_ts_to_str(int(t["exit_ts"]))}</td>'
-            f'<td style="padding:6px 8px; text-align:right; font-variant-numeric:tabular-nums;">'
-            f"{float(t['entry_price']):,.2f}</td>"
-            f'<td style="padding:6px 8px; text-align:right; font-variant-numeric:tabular-nums;">'
-            f"{float(t['exit_price']):,.2f}</td>"
-            f'<td style="padding:6px 8px; text-align:right; font-variant-numeric:tabular-nums; '
-            f'color:{pnl_color}; font-weight:600;">{pnl:+,.2f}</td>'
-            f'<td style="padding:6px 8px; text-align:right; font-variant-numeric:tabular-nums; '
-            f'color:{pnl_color};">{ret:+.2f}%</td>'
-            f'<td style="padding:6px 8px;">{badge}</td>'
+            f"<tr>"
+            f'<td class="muted">{_ts_to_str(ts, "%m-%d %H:%M")}</td>'
+            f'<td><span class="act {act_cls}">{action}</span></td>'
+            f"<td><strong>{sym}</strong></td>"
+            f'<td class="num">{qty:.6f}</td>'
+            f'<td class="muted">{details}</td>'
             f"</tr>"
         )
     return (
-        '<table style="width:100%; border-collapse:collapse; font-size:12px;">'
-        '<thead><tr style="color:#9ca3af; font-size:10px; text-transform:uppercase; '
-        'letter-spacing:0.08em; border-bottom:1px solid #374151;">'
-        '<th style="padding:6px 8px; text-align:left;">Entry</th>'
-        '<th style="padding:6px 8px; text-align:left;">Exit</th>'
-        '<th style="padding:6px 8px; text-align:right;">Entry $</th>'
-        '<th style="padding:6px 8px; text-align:right;">Exit $</th>'
-        '<th style="padding:6px 8px; text-align:right;">P&amp;L</th>'
-        '<th style="padding:6px 8px; text-align:right;">Return</th>'
-        '<th style="padding:6px 8px;">Reason</th>'
-        "</tr></thead><tbody>" + "".join(rows_html) + "</tbody></table>"
+        '<table class="t">'
+        "<thead><tr>"
+        "<th>TIME</th><th>ACTION</th><th>SYMBOL</th>"
+        '<th class="num">QTY</th><th>DETAILS</th>'
+        "</tr></thead>"
+        "<tbody>" + "".join(rows_html) + "</tbody></table>"
     )
 
 
@@ -327,34 +450,34 @@ def _render_compare_tab() -> None:
 
 def _positions_html(positions: list[dict]) -> str:
     if not positions:
-        return '<div class="muted">No open positions.</div>'
+        return '<div class="muted" style="padding:14px;">No open positions.</div>'
     rows_html: list[str] = []
     for p in positions:
         upnl = float(p["unrealized_pnl"])
-        color = GREEN if upnl > 0 else (RED if upnl < 0 else GREY)
+        avg = float(p["avg_entry"])
+        last = float(p["last_price"])
+        upnl_pct = (last / avg - 1.0) * 100 if avg > 0 else 0.0
+        cls = "pos" if upnl > 0 else ("neg" if upnl < 0 else "muted")
         rows_html.append(
-            f'<tr style="border-bottom:1px solid #1f2937;">'
-            f'<td style="padding:8px;"><strong>{p["symbol"]}</strong></td>'
-            f'<td style="padding:8px; text-align:right; font-variant-numeric:tabular-nums;">'
-            f"{p['qty']:.6f}</td>"
-            f'<td style="padding:8px; text-align:right; font-variant-numeric:tabular-nums;">'
-            f"{p['avg_entry']:,.2f}</td>"
-            f'<td style="padding:8px; text-align:right; font-variant-numeric:tabular-nums;">'
-            f"{p['last_price']:,.2f}</td>"
-            f'<td style="padding:8px; text-align:right; font-variant-numeric:tabular-nums; '
-            f'color:{color}; font-weight:600;">{upnl:+,.2f}</td>'
+            f"<tr>"
+            f"<td><strong>{p['symbol']}</strong></td>"
+            f'<td class="num">{p["qty"]:.4f}</td>'
+            f'<td class="num">${avg:,.2f}</td>'
+            f'<td class="num">${last:,.2f}</td>'
+            f'<td class="num {cls}">${upnl:+,.2f}<br>'
+            f'<span style="font-size:10px;">{upnl_pct:+.2f}%</span></td>'
             f"</tr>"
         )
     return (
-        '<table style="width:100%; border-collapse:collapse; font-size:12px;">'
-        '<thead><tr style="color:#9ca3af; font-size:10px; text-transform:uppercase; '
-        'letter-spacing:0.08em; border-bottom:1px solid #374151;">'
-        '<th style="padding:6px 8px; text-align:left;">Symbol</th>'
-        '<th style="padding:6px 8px; text-align:right;">Qty</th>'
-        '<th style="padding:6px 8px; text-align:right;">Avg Entry</th>'
-        '<th style="padding:6px 8px; text-align:right;">Mark</th>'
-        '<th style="padding:6px 8px; text-align:right;">uPnL</th>'
-        "</tr></thead><tbody>" + "".join(rows_html) + "</tbody></table>"
+        '<table class="t">'
+        "<thead><tr>"
+        "<th>SYMBOL</th>"
+        '<th class="num">QTY</th>'
+        '<th class="num">ENTRY</th>'
+        '<th class="num">CURRENT</th>'
+        '<th class="num">P&amp;L</th>'
+        "</tr></thead>"
+        "<tbody>" + "".join(rows_html) + "</tbody></table>"
     )
 
 
@@ -377,31 +500,28 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
     s = summary(rows, initial_cash=initial_cash)
     eq_df = equity_curve(rows, initial_cash=initial_cash)
     positions = open_positions(rows)
-    fills = [r for r in rows if r["event_type"] == "order_filled"]
-    last_bar_ts = max((int(r["timestamp_ms"]) for r in fills), default=None)
-    active_symbols = sorted({r["symbol"] for r in rows}) if rows else []
 
     current_equity = float(eq_df.iloc[-1]["equity"]) if not eq_df.empty else initial_cash
     current_cash = float(eq_df.iloc[-1]["cash"]) if not eq_df.empty else initial_cash
     total_return = (current_equity - initial_cash) / initial_cash if initial_cash > 0 else 0
-    realized_pnl = s["realized_pnl"]
 
-    last_bar_str = _ts_to_str(last_bar_ts, "%Y-%m-%d %H:%M UTC") if last_bar_ts else "—"
-    symbols_str = ", ".join(active_symbols) if active_symbols else "—"
+    # --- Header: brand left, clock + status dot right (matches reference) ---
+    now_utc_str = pd.Timestamp.utcnow().strftime("%H:%M:%S UTC")
+    loop_alive = loop_control.status().running
+    kill_on = kill_switch_active(kill_switch_path)
+    dot_cls = "dot-green" if loop_alive and not kill_on else "dot-red"
+    dot_label = "LIVE" if loop_alive and not kill_on else ("PAUSED" if kill_on else "OFFLINE")
     st.markdown(
         f'<div style="display:flex; justify-content:space-between; align-items:center; '
-        f'margin-bottom:8px;">'
-        f'<div><span style="font-size:18px; font-weight:700; letter-spacing:0.06em; '
-        f'color:#fbbf24;">🐺 WOLF OF VIBE STREET</span> '
-        f'<span class="muted" style="margin-left:12px;">DASHBOARD · paper</span></div>'
-        f'<div style="font-size:11px; color:#9ca3af; text-align:right;">'
-        f'<div>last fill: <span style="color:#e5e7eb;">{last_bar_str}</span> '
-        f'· symbols: <span style="color:#e5e7eb;">{symbols_str}</span></div>'
-        f"<div>kill switch: "
-        f'<span class="{"kill-on" if kill_switch_active(kill_switch_path) else "kill-off"}">'
-        f"{'ACTIVE' if kill_switch_active(kill_switch_path) else 'OFF'}</span>"
-        f" · auto-refresh {REFRESH_INTERVAL_S}s</div></div>"
-        f"</div>",
+        f'padding-bottom:14px; border-bottom:1px solid #1f2937; margin-bottom:14px;">'
+        f'<div class="brand">🐺 <span class="accent">WOLF</span> OF '
+        f'<span class="accent">VIBE</span> STREET'
+        f'<span class="sub">DASHBOARD · PAPER</span></div>'
+        f"<div style=\"font-family:'SF Mono',Menlo,monospace; font-size:12px; "
+        f'color:#9ca3af; letter-spacing:0.06em;">'
+        f"{now_utc_str} &nbsp;·&nbsp; "
+        f'<span class="dot {dot_cls}"></span><span style="color:#e5e7eb;">{dot_label}</span>'
+        f"</div></div>",
         unsafe_allow_html=True,
     )
 
@@ -455,33 +575,104 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
             unsafe_allow_html=True,
         )
 
-        c1, c2, c3, c4, c5 = st.columns(5)
-        c1.metric("Equity", _fmt_money(current_equity), f"{total_return * 100:+.2f} %")
-        c2.metric("Cash", _fmt_money(current_cash))
-        c3.metric(
-            "Realized P&L",
-            _fmt_money(realized_pnl, sign=True),
-            f"{s['win_rate'] * 100:.1f}% WR",
-        )
-        c4.metric("Trades", s["trades"], f"{s['wins']}W / {s['losses']}L")
-        c5.metric("Open positions", len(positions))
+        # --- 5 KPI cards with colored top-borders, matches reference ---
+        from risk.caps import RiskCaps as _RiskCaps  # noqa: PLC0415
 
+        max_pos = _RiskCaps().max_concurrent_positions
+        now_ms = int(pd.Timestamp.utcnow().timestamp() * 1000)
+        today_pnl = day_pnl(rows, now_ms=now_ms)
+        equity_color = (
+            "white" if abs(total_return) < 0.001 else ("green" if total_return > 0 else "red")
+        )
+        cash_color = "red" if current_cash < 0 else "white"
+        day_color = "green" if today_pnl >= 0 else "red"
+        vs_start_color = "gold"
+
+        def _kpi(color: str, label: str, value: str, delta: str = "") -> str:
+            delta_html = f'<div class="delta">{delta}</div>' if delta else ""
+            return (
+                f'<div class="kpi {color}">'
+                f'<div class="label">{label}</div>'
+                f'<div class="value">{value}</div>'
+                f"{delta_html}</div>"
+            )
+
+        k1, k2, k3, k4, k5 = st.columns(5)
+        k1.markdown(
+            _kpi(
+                equity_color,
+                "Equity",
+                f"${current_equity:,.2f}",
+                f"{total_return * 100:+.2f}% vs start",
+            ),
+            unsafe_allow_html=True,
+        )
+        k2.markdown(
+            _kpi(cash_color, "Cash", f"${current_cash:,.2f}"),
+            unsafe_allow_html=True,
+        )
+        k3.markdown(
+            _kpi(day_color, "Day P&L", f"${today_pnl:+,.2f}" if today_pnl else "$0.00", ""),
+            unsafe_allow_html=True,
+        )
+        k4.markdown(
+            _kpi(
+                vs_start_color,
+                "Vs. start",
+                f"${current_equity - initial_cash:+,.2f}",
+                f"{total_return * 100:+.2f}%",
+            ),
+            unsafe_allow_html=True,
+        )
+        k5.markdown(
+            _kpi("white", "Positions", str(len(positions)), f"max {max_pos}"),
+            unsafe_allow_html=True,
+        )
+
+        st.write("")  # spacer
+
+        # --- Row 1: Equity curve (left, 2x) + Open positions (right, 1x) ---
         left, right = st.columns([2, 1])
         with left:
-            st.markdown('<div class="section-title">Equity curve</div>', unsafe_allow_html=True)
+            total_pct = total_return * 100
+            st.markdown(
+                f'<div class="panel"><div class="panel-title">Equity curve'
+                f'<span class="right">{total_pct:+.2f}% total</span></div>',
+                unsafe_allow_html=True,
+            )
             st.plotly_chart(
                 _equity_chart(eq_df, initial_cash),
                 config={"displayModeBar": False},
                 width="stretch",
             )
-            st.markdown('<div class="section-title">Trade history</div>', unsafe_allow_html=True)
-            st.markdown(_trades_table_html(trades_dataframe(rows)), unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
 
         with right:
-            st.markdown('<div class="section-title">Open positions</div>', unsafe_allow_html=True)
-            st.markdown(_positions_html(positions), unsafe_allow_html=True)
-            st.markdown('<div class="section-title">Live log</div>', unsafe_allow_html=True)
-            st.markdown(_live_log_html(rows), unsafe_allow_html=True)
+            st.markdown(
+                f'<div class="panel"><div class="panel-title">Open positions'
+                f'<span class="right">{len(positions)} / {max_pos}</span></div>'
+                f'<div class="body">{_positions_html(positions)}</div></div>',
+                unsafe_allow_html=True,
+            )
+
+        # --- Row 2: Trade history (left, 2x) + Live log (right, 1x) ---
+        left2, right2 = st.columns([2, 1])
+        with left2:
+            st.markdown(
+                f'<div class="panel"><div class="panel-title">Trade history'
+                f'<span class="right">last 25</span></div>'
+                f'<div class="body">{_trades_table_html(trades_dataframe(rows))}</div></div>',
+                unsafe_allow_html=True,
+            )
+
+        with right2:
+            log_html = _live_log_html(rows, n=80)
+            st.markdown(
+                f'<div class="panel"><div class="panel-title">Live log'
+                f'<span class="right">last 80 · auto-scroll</span></div>'
+                f"{log_html}</div>",
+                unsafe_allow_html=True,
+            )
             if s["blocks_by_reason"]:
                 st.markdown('<div class="section-title">Risk blocks</div>', unsafe_allow_html=True)
                 for reason, count in sorted(s["blocks_by_reason"].items(), key=lambda kv: -kv[1]):
@@ -493,14 +684,27 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
                         unsafe_allow_html=True,
                     )
 
+        # --- Loop output (full width below) ---
         st.markdown(
-            '<div class="section-title">Loop output (last 30 lines)</div>',
+            '<div class="panel"><div class="panel-title">Loop output'
+            '<span class="right">last 30 lines</span></div>',
             unsafe_allow_html=True,
         )
         loop_log_text = (
             loop_control.tail_log(lines=30) or "(no loop log yet — start the loop from the sidebar)"
         )
         st.code(loop_log_text, language="bash")
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        # --- Footer disclaimer ---
+        last_refresh = pd.Timestamp.utcnow().strftime("%H:%M:%S UTC")
+        st.markdown(
+            f'<div class="footer">'
+            f"<div>PAPER TRADING // FOR TESTING ONLY // NOT FINANCIAL ADVICE</div>"
+            f"<div>Last refresh: {last_refresh}</div>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
 
     with tab_compare:
         _render_compare_tab()

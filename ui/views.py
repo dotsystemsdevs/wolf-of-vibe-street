@@ -191,6 +191,18 @@ def open_positions(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     ]
 
 
+def day_pnl(rows: list[dict[str, Any]], *, now_ms: int) -> float:
+    """Realized P&L for closed trades whose exit_ts falls within the current UTC day."""
+    trades = trades_dataframe(rows)
+    if trades.empty:
+        return 0.0
+    day_start_ms = (now_ms // 86_400_000) * 86_400_000
+    today = trades[trades["exit_ts"] >= day_start_ms]
+    if today.empty:
+        return 0.0
+    return float(today["pnl"].sum())
+
+
 def soak_health(
     rows: list[dict[str, Any]],
     *,
