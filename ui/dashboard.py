@@ -201,12 +201,13 @@ header[data-testid="stHeader"] { background: transparent; }
 
 /* --- Footer --- */
 .footer {
-  margin-top: 14px; padding: 10px 12px;
+  margin-top: 32px; padding: 12px 12px;
   border-top: 1px solid var(--border);
   display: flex; justify-content: space-between;
   font-family: "SF Mono", Menlo, monospace;
   font-size: 10px; color: var(--text-3);
   letter-spacing: 0.10em; text-transform: uppercase;
+  clear: both;
 }
 
 /* Streamlit overrides */
@@ -279,14 +280,31 @@ def _equity_chart(
 ) -> go.Figure:
     fig = go.Figure()
     if eq_df.empty:
+        # Anchor at initial_cash so the chart reads "flat at start" rather than
+        # the misleading Plotly auto-axis (-1 to 3) that defaults when no traces.
+        fig.add_hline(
+            y=initial_cash,
+            line={"color": "#737373", "width": 1, "dash": "dot"},
+            annotation_text=f"Start ${initial_cash:,.0f}",
+            annotation_position="top right",
+            annotation_font_color="#737373",
+            annotation_font_size=10,
+        )
         fig.add_annotation(
-            text="No fills yet — waiting for the first trade.",
+            text="Waiting for the first trade — no fills yet.",
             xref="paper",
             yref="paper",
             x=0.5,
             y=0.5,
             showarrow=False,
-            font={"color": "#6b7280", "size": 14},
+            font={"color": "#737373", "size": 13},
+        )
+        fig.update_xaxes(visible=False)
+        fig.update_yaxes(
+            range=[initial_cash * 0.95, initial_cash * 1.05],
+            tickprefix="$",
+            tickformat=",.0f",
+            gridcolor="#1f1f1f",
         )
     else:
         ts = pd.to_datetime(eq_df["timestamp_ms"], unit="ms", utc=True)
@@ -630,8 +648,9 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
     current_cash = float(eq_df.iloc[-1]["cash"]) if not eq_df.empty else initial_cash
     total_return = (current_equity - initial_cash) / initial_cash if initial_cash > 0 else 0
 
-    # --- Header: institutional, no decoration ---
-    now_utc_str = pd.Timestamp.utcnow().strftime("%H:%M:%S UTC")
+    # --- Header: institutional + trader context ---
+    now = pd.Timestamp.utcnow()
+    now_utc_str = now.strftime("%H:%M:%S UTC")
     loop_alive = loop_control.status().running
     kill_on = kill_switch_active(kill_switch_path)
     live_trading = os.environ.get("LIVE_TRADING", "false").strip().lower() == "true"
@@ -643,6 +662,24 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
         status_v, status_cls = "OFF", "off"
     mode_cls = "live" if live_trading else "paper"
     mode_text = "LIVE" if live_trading else "PAPER"
+
+    # Symbol + timeframe + countdown to next bar close (1h-bar trader needs this).
+    symbol_env = os.environ.get("TRADERBOT_SYMBOL", "BTC/USDT")
+    timeframe = os.environ.get("TRADERBOT_TIMEFRAME", "1h")
+    tf_seconds = {
+        "1m": 60,
+        "5m": 300,
+        "15m": 900,
+        "30m": 1800,
+        "1h": 3600,
+        "4h": 14400,
+        "1d": 86400,
+    }.get(timeframe, 3600)
+    next_bar_in = tf_seconds - (int(now.timestamp()) % tf_seconds)
+    nb_min, nb_sec = divmod(next_bar_in, 60)
+    nb_h, nb_min = divmod(nb_min, 60)
+    next_bar_str = f"{nb_h}h {nb_min:02d}m" if nb_h else f"{nb_min:02d}:{nb_sec:02d}"
+
     st.markdown(
         f'<div style="display:flex; justify-content:space-between; align-items:center; '
         f'padding-bottom:10px; border-bottom:1px solid #1f1f1f; margin-bottom:10px;">'
@@ -650,9 +687,16 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
         f'<span class="sub">DASHBOARD</span>'
         f'<span class="mode {mode_cls}">{mode_text}</span></div>'
         f'<div class="status">'
+        f'<span style="color:#737373;">MONITORING</span> '
+        f'<span class="v">{symbol_env} · {timeframe}</span>'
+        f'<span style="margin:0 10px; color:#3a3a3a;">|</span>'
+        f'<span style="color:#737373;">NEXT BAR</span> '
+        f'<span class="v">{next_bar_str}</span>'
+        f'<span style="margin:0 10px; color:#3a3a3a;">|</span>'
         f'<span class="v">{now_utc_str}</span>'
-        f'<span style="margin:0 12px; color:#3a3a3a;">|</span>'
-        f'STATUS <span class="v {status_cls}">{status_v}</span>'
+        f'<span style="margin:0 10px; color:#3a3a3a;">|</span>'
+        f'<span style="color:#737373;">STATUS</span> '
+        f'<span class="v {status_cls}">{status_v}</span>'
         f"</div></div>",
         unsafe_allow_html=True,
     )
@@ -738,29 +782,32 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
         delta_eq = current_equity - initial_cash
         k1.markdown(
             _kpi(
-                _sign(delta_eq),
-                "Equity",
-                f"${current_equity:,.2f}",
-                f"{total_return * 100:+.2f}%",
+                _sign(delta_eq), "Equity", f"${current_equity:,.2f}", f"{total_return * 100:+.2f}%"
             ),
             unsafe_allow_html=True,
         )
         k2.markdown(
-            _kpi(_sign(current_cash - initial_cash), "Cash", f"${current_cash:,.2f}"),
+            _kpi(
+                _sign(current_cash - initial_cash),
+                "Cash",
+                f"${current_cash:,.2f}",
+                f"{(current_cash / initial_cash) * 100:.1f}% of start",
+            ),
             unsafe_allow_html=True,
         )
         k3.markdown(
             _kpi(
                 _sign(today_pnl),
-                "Day P&L",
+                "Day P&L (today UTC)",
                 f"${today_pnl:+,.2f}" if today_pnl else "$0.00",
+                "",
             ),
             unsafe_allow_html=True,
         )
         k4.markdown(
             _kpi(
                 _sign(delta_eq),
-                "Total P&L",
+                "Total P&L (since start)",
                 f"${delta_eq:+,.2f}",
                 f"{total_return * 100:+.2f}%",
             ),
@@ -774,44 +821,65 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
         # --- Performance metrics row (denser, no labels above values) ---
         from backtest.metrics import equity_returns, max_drawdown, sharpe  # noqa: PLC0415
 
-        sharpe_v = 0.0
-        maxdd_v = 0.0
-        if not eq_df.empty:
+        # n=0 → "—", not 0/red. Sharpe/Max DD only meaningful with multi-bar history.
+        n_trades = s["trades"]
+        sharpe_v: float | None = None
+        maxdd_v: float | None = None
+        if not eq_df.empty and len(eq_df) >= 2:
             eq_series = pd.Series(eq_df["equity"].to_numpy())
             rets = equity_returns(eq_series)
-            sharpe_v = sharpe(rets) if len(rets) >= 2 else 0.0
-            maxdd_v = max_drawdown(eq_series)
-        win_rate_v = s["win_rate"] * 100
-        exposure_v = (
+            if len(rets) >= 2:
+                sharpe_v = sharpe(rets)
+                maxdd_v = max_drawdown(eq_series)
+        win_rate_v: float | None = (s["win_rate"] * 100) if n_trades > 0 else None
+        exposure_pct = (
             sum(p["last_price"] * p["qty"] for p in positions) / current_equity * 100
             if current_equity > 0
             else 0.0
         )
 
-        def _mini(label: str, value: str, color: str = "#e5e7eb") -> str:
+        neutral = "#a3a3a3"
+
+        def _mini(label: str, value: str, color: str = "#e8e8e8") -> str:
+            # Subordinate to KPI cards: smaller value (16px), tighter padding.
             return (
-                f'<div style="background:#0f1623; border:1px solid #1f2937; '
-                f'border-radius:4px; padding:8px 12px;">'
-                f'<div style="font-size:9px; color:#6b7280; text-transform:uppercase; '
-                f'letter-spacing:0.12em; margin-bottom:2px;">{label}</div>'
-                f"<div style=\"font-family:'SF Mono',Menlo,monospace; font-size:15px; "
-                f'font-weight:700; color:{color};">{value}</div></div>'
+                f'<div style="background:#111111; border:1px solid #1f1f1f; '
+                f'padding:8px 12px;">'
+                f'<div style="font-family:Inter,sans-serif; font-size:9px; color:#737373; '
+                f'text-transform:uppercase; letter-spacing:0.14em; margin-bottom:4px;">'
+                f"{label}</div>"
+                f"<div style=\"font-family:'SF Mono',Menlo,monospace; font-size:16px; "
+                f'font-weight:600; color:{color}; line-height:1;">{value}</div></div>'
             )
 
-        sharpe_color = GREEN if sharpe_v > 0 else (RED if sharpe_v < 0 else "#e5e7eb")
-        wr_color = GREEN if win_rate_v >= 33.3 else RED  # vs BE_WR for 2:1 R/R
+        if sharpe_v is None:
+            sharpe_str, sharpe_color = "—", neutral
+        else:
+            sharpe_str = f"{sharpe_v:+.2f}"
+            sharpe_color = "#16a34a" if sharpe_v > 0 else ("#dc2626" if sharpe_v < 0 else "#e8e8e8")
+        if maxdd_v is None:
+            maxdd_str, maxdd_color = "—", neutral
+        elif maxdd_v == 0:
+            maxdd_str, maxdd_color = "0.00%", neutral
+        else:
+            maxdd_str, maxdd_color = f"{maxdd_v * 100:.2f}%", "#dc2626"
+        if win_rate_v is None:
+            wr_str, wr_color = "—", neutral
+        else:
+            wr_str = f"{win_rate_v:.1f}%"
+            wr_color = "#16a34a" if win_rate_v >= 33.3 else "#dc2626"
+        # Exposure: always show "X% / 100% cap" so the cap is visible context.
+        if exposure_pct == 0:
+            exp_str, exp_color = "0% / 100% cap", neutral
+        else:
+            exp_str, exp_color = f"{exposure_pct:.1f}% / 100% cap", "#d97706"
+
         m1, m2, m3, m4 = st.columns(4)
-        m1.markdown(
-            _mini("Sharpe (ann.)", f"{sharpe_v:+.2f}", sharpe_color), unsafe_allow_html=True
-        )
-        m2.markdown(
-            _mini("Max drawdown", f"{maxdd_v * 100:.2f}%", RED if maxdd_v > 0 else "#e5e7eb"),
-            unsafe_allow_html=True,
-        )
-        m3.markdown(_mini("Win rate", f"{win_rate_v:.1f}%", wr_color), unsafe_allow_html=True)
+        m1.markdown(_mini("Sharpe (ann.)", sharpe_str, sharpe_color), unsafe_allow_html=True)
+        m2.markdown(_mini("Max drawdown", maxdd_str, maxdd_color), unsafe_allow_html=True)
+        m3.markdown(_mini("Win rate", wr_str, wr_color), unsafe_allow_html=True)
         m4.markdown(
-            _mini("Exposure", f"{exposure_v:.1f}%", GOLD if exposure_v > 0 else "#e5e7eb"),
-            unsafe_allow_html=True,
+            _mini("Exposure", exp_str, exp_color),
         )
 
         st.write("")  # spacer

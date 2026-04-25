@@ -260,13 +260,26 @@ def soak_health(
         last_sig_ms = max(int(r["timestamp_ms"]) for r in signal_rows)
         age_s = (now_ms - last_sig_ms) / 1000
         threshold_s = expected_bar_seconds * 2 + 600  # 2 bars + 10 min slack
+        # Compute next-bar context so "68 min ago" reads as "normal for 1h" not "stuck".
+        next_bar_in_s = expected_bar_seconds - ((now_ms // 1000) % expected_bar_seconds)
+        nb_min = next_bar_in_s // 60
+        tf_label = (
+            "1h"
+            if expected_bar_seconds == 3600
+            else f"{expected_bar_seconds // 60}m"
+            if expected_bar_seconds < 3600
+            else f"{expected_bar_seconds // 3600}h"
+        )
         if age_s <= threshold_s:
             out.append(
                 {
                     "name": "Recent signals",
                     "status": "ok",
-                    "message": f"Last signal {int(age_s / 60)} min ago "
-                    f"({len(signal_rows)} signals total)",
+                    "message": (
+                        f"Last signal {int(age_s / 60)} min ago "
+                        f"({len(signal_rows)} total) · {tf_label} bars · "
+                        f"next in {nb_min} min"
+                    ),
                 }
             )
         else:
@@ -274,8 +287,11 @@ def soak_health(
                 {
                     "name": "Recent signals",
                     "status": "error",
-                    "message": f"Last signal was {int(age_s / 60)} min ago — "
-                    f"loop may be stuck (expected within {threshold_s // 60} min)",
+                    "message": (
+                        f"Last signal was {int(age_s / 60)} min ago — loop may be "
+                        f"stuck ({tf_label} bars; expected within "
+                        f"{threshold_s // 60} min)"
+                    ),
                 }
             )
 
