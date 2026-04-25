@@ -40,7 +40,7 @@ from ui.views import (  # noqa: E402
 )
 
 DEFAULT_DB_PATH = Path("data/decision_log/traderbot.db")
-REFRESH_INTERVAL_S = 10
+REFRESH_INTERVAL_S = 30
 
 GREEN = "#22c55e"
 RED = "#ef4444"
@@ -183,6 +183,31 @@ CSS = """
   letter-spacing: 0.10em; text-transform: uppercase;
 }
 
+/* --- PAPER / LIVE mode pill (safety: visually impossible to confuse) --- */
+.mode-pill {
+  display: inline-block; margin-left: 14px;
+  padding: 4px 12px; border-radius: 4px;
+  font-family: "SF Mono", Menlo, monospace;
+  font-size: 11px; font-weight: 800; letter-spacing: 0.10em;
+  vertical-align: 3px;
+}
+.mode-paper {
+  background: rgba(34,197,94,0.15);
+  color: var(--green);
+  border: 1px solid rgba(34,197,94,0.4);
+}
+.mode-live {
+  background: rgba(239,68,68,0.20);
+  color: #fff;
+  border: 2px solid var(--red);
+  box-shadow: 0 0 12px rgba(239,68,68,0.4);
+  animation: live-pulse 2s ease-in-out infinite;
+}
+@keyframes live-pulse {
+  0%, 100% { box-shadow: 0 0 12px rgba(239,68,68,0.4); }
+  50%      { box-shadow: 0 0 20px rgba(239,68,68,0.8); }
+}
+
 /* --- Status dot (header) --- */
 .dot { display: inline-block; width: 8px; height: 8px;
   border-radius: 50%; margin-right: 6px; vertical-align: middle; }
@@ -226,7 +251,42 @@ def _fmt_money(v: float, sign: bool = False) -> str:
     return f"${s}"
 
 
-def _equity_chart(eq_df: pd.DataFrame, initial_cash: float) -> go.Figure:
+def _load_buy_hold_curve(rows: list[dict], initial_cash: float) -> pd.DataFrame:
+    """Build a buy-and-hold equity curve from the parquet that matches the soak window.
+
+    Uses the symbol of the first fill + the first/last fill timestamps to slice the
+    parquet. Returns empty DataFrame if no parquet or no fills.
+    """
+    fills = [r for r in rows if r["event_type"] == "order_filled"]
+    if not fills:
+        return pd.DataFrame(columns=["timestamp_ms", "equity"])
+    symbol = fills[0]["symbol"]
+    from data.store import bars_path, load_bars  # noqa: PLC0415
+
+    path = bars_path("binance", symbol, "1h")
+    if not path.exists():
+        return pd.DataFrame(columns=["timestamp_ms", "equity"])
+    bars = load_bars(path)
+    if not bars:
+        return pd.DataFrame(columns=["timestamp_ms", "equity"])
+    df = pd.DataFrame(bars)
+    start_ts = min(int(r["timestamp_ms"]) for r in fills)
+    end_ts = max(int(r["timestamp_ms"]) for r in fills)
+    df = df[(df["timestamp_ms"] >= start_ts) & (df["timestamp_ms"] <= end_ts)]
+    if df.empty:
+        return pd.DataFrame(columns=["timestamp_ms", "equity"])
+    base = float(df["close"].iloc[0])
+    return pd.DataFrame(
+        {
+            "timestamp_ms": df["timestamp_ms"].astype(int),
+            "equity": initial_cash * df["close"].astype(float) / base,
+        }
+    )
+
+
+def _equity_chart(
+    eq_df: pd.DataFrame, initial_cash: float, rows: list[dict] | None = None
+) -> go.Figure:
     fig = go.Figure()
     if eq_df.empty:
         fig.add_annotation(
@@ -240,22 +300,81 @@ def _equity_chart(eq_df: pd.DataFrame, initial_cash: float) -> go.Figure:
         )
     else:
         ts = pd.to_datetime(eq_df["timestamp_ms"], unit="ms", utc=True)
+
+        # Buy-and-hold benchmark (only when we have fills + parquet for the symbol)
+        if rows is not None:
+            bh = _load_buy_hold_curve(rows, initial_cash)
+            if not bh.empty:
+                fig.add_trace(
+                    go.Scatter(
+                        x=pd.to_datetime(bh["timestamp_ms"], unit="ms", utc=True),
+                        y=bh["equity"],
+                        mode="lines",
+                        line={"color": "#6b7280", "width": 1.5, "dash": "dot"},
+                        name="Buy &amp; hold",
+                        hovertemplate="B&amp;H %{y:$,.2f}<extra></extra>",
+                    )
+                )
+
+        # Strategy equity (step line)
         fig.add_trace(
             go.Scatter(
                 x=ts,
                 y=eq_df["equity"],
                 mode="lines",
-                line={"color": GOLD, "width": 2, "shape": "hv"},
-                fill="tozeroy",
-                fillcolor="rgba(251,191,36,0.05)",
-                name="Equity",
-                hovertemplate="%{y:$,.2f}<extra></extra>",
+                line={"color": GOLD, "width": 2.5, "shape": "hv"},
+                name="Strategy",
+                hovertemplate="Strat %{y:$,.2f}<extra></extra>",
             )
         )
-        fig.add_hline(y=initial_cash, line={"color": "#374151", "width": 1, "dash": "dot"})
+
+        # Trade markers — diamond at each fill, color by side
+        if rows is not None:
+            fills = [r for r in rows if r["event_type"] == "order_filled"]
+            if fills:
+                buys = [f for f in fills if f["side"] == "buy"]
+                sells = [f for f in fills if f["side"] == "sell"]
+                eq_by_ts = dict(zip(eq_df["timestamp_ms"], eq_df["equity"], strict=False))
+                if buys:
+                    bx = pd.to_datetime([int(f["timestamp_ms"]) for f in buys], unit="ms", utc=True)
+                    by = [eq_by_ts.get(int(f["timestamp_ms"]), float("nan")) for f in buys]
+                    fig.add_trace(
+                        go.Scatter(
+                            x=bx,
+                            y=by,
+                            mode="markers",
+                            marker={"color": GREEN, "size": 7, "symbol": "triangle-up"},
+                            name="Buy",
+                            hovertemplate="BUY @ %{x|%m-%d %H:%M}<extra></extra>",
+                        )
+                    )
+                if sells:
+                    sx = pd.to_datetime(
+                        [int(f["timestamp_ms"]) for f in sells], unit="ms", utc=True
+                    )
+                    sy = [eq_by_ts.get(int(f["timestamp_ms"]), float("nan")) for f in sells]
+                    fig.add_trace(
+                        go.Scatter(
+                            x=sx,
+                            y=sy,
+                            mode="markers",
+                            marker={"color": RED, "size": 7, "symbol": "triangle-down"},
+                            name="Sell",
+                            hovertemplate="SELL @ %{x|%m-%d %H:%M}<extra></extra>",
+                        )
+                    )
+
+        fig.add_hline(
+            y=initial_cash,
+            line={"color": "#374151", "width": 1, "dash": "dot"},
+            annotation_text="Start",
+            annotation_position="top right",
+            annotation_font_color="#6b7280",
+            annotation_font_size=10,
+        )
 
     fig.update_layout(
-        height=260,
+        height=300,
         margin={"l": 4, "r": 4, "t": 4, "b": 4},
         paper_bgcolor="#141a26",
         plot_bgcolor="#141a26",
@@ -266,8 +385,24 @@ def _equity_chart(eq_df: pd.DataFrame, initial_cash: float) -> go.Figure:
             "spikecolor": "#374151",
             "spikethickness": 1,
         },
-        yaxis={"gridcolor": "#1f2937", "tickprefix": "$", "tickformat": ",.0f"},
-        showlegend=False,
+        # autorange=True + tight padding lets the chart zoom to the actual range,
+        # not a forced [$0, max] which makes small moves invisible.
+        yaxis={
+            "gridcolor": "#1f2937",
+            "tickprefix": "$",
+            "tickformat": ",.0f",
+            "autorange": True,
+            "fixedrange": False,
+        },
+        showlegend=True,
+        legend={
+            "orientation": "h",
+            "yanchor": "bottom",
+            "y": 1.02,
+            "x": 0,
+            "bgcolor": "rgba(0,0,0,0)",
+            "font": {"size": 10, "color": "#9ca3af"},
+        },
         hovermode="x unified",
     )
     return fig
@@ -505,18 +640,22 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
     current_cash = float(eq_df.iloc[-1]["cash"]) if not eq_df.empty else initial_cash
     total_return = (current_equity - initial_cash) / initial_cash if initial_cash > 0 else 0
 
-    # --- Header: brand left, clock + status dot right (matches reference) ---
+    # --- Header: brand left, clock + status dot right ---
     now_utc_str = pd.Timestamp.utcnow().strftime("%H:%M:%S UTC")
     loop_alive = loop_control.status().running
     kill_on = kill_switch_active(kill_switch_path)
+    live_trading = os.environ.get("LIVE_TRADING", "false").strip().lower() == "true"
     dot_cls = "dot-green" if loop_alive and not kill_on else "dot-red"
-    dot_label = "LIVE" if loop_alive and not kill_on else ("PAUSED" if kill_on else "OFFLINE")
+    dot_label = "RUNNING" if loop_alive and not kill_on else ("PAUSED" if kill_on else "OFFLINE")
+    mode_class = "mode-live" if live_trading else "mode-paper"
+    mode_text = "🔴 LIVE — REAL MONEY" if live_trading else "🟢 PAPER"
     st.markdown(
         f'<div style="display:flex; justify-content:space-between; align-items:center; '
         f'padding-bottom:14px; border-bottom:1px solid #1f2937; margin-bottom:14px;">'
         f'<div class="brand">🐺 <span class="accent">WOLF</span> OF '
         f'<span class="accent">VIBE</span> STREET'
-        f'<span class="sub">DASHBOARD · PAPER</span></div>'
+        f'<span class="sub">DASHBOARD</span>'
+        f'<span class="mode-pill {mode_class}">{mode_text}</span></div>'
         f"<div style=\"font-family:'SF Mono',Menlo,monospace; font-size:12px; "
         f'color:#9ca3af; letter-spacing:0.06em;">'
         f"{now_utc_str} &nbsp;·&nbsp; "
@@ -629,6 +768,49 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
             unsafe_allow_html=True,
         )
 
+        # --- Performance metrics row (denser, no labels above values) ---
+        from backtest.metrics import equity_returns, max_drawdown, sharpe  # noqa: PLC0415
+
+        sharpe_v = 0.0
+        maxdd_v = 0.0
+        if not eq_df.empty:
+            eq_series = pd.Series(eq_df["equity"].to_numpy())
+            rets = equity_returns(eq_series)
+            sharpe_v = sharpe(rets) if len(rets) >= 2 else 0.0
+            maxdd_v = max_drawdown(eq_series)
+        win_rate_v = s["win_rate"] * 100
+        exposure_v = (
+            sum(p["last_price"] * p["qty"] for p in positions) / current_equity * 100
+            if current_equity > 0
+            else 0.0
+        )
+
+        def _mini(label: str, value: str, color: str = "#e5e7eb") -> str:
+            return (
+                f'<div style="background:#0f1623; border:1px solid #1f2937; '
+                f'border-radius:4px; padding:8px 12px;">'
+                f'<div style="font-size:9px; color:#6b7280; text-transform:uppercase; '
+                f'letter-spacing:0.12em; margin-bottom:2px;">{label}</div>'
+                f"<div style=\"font-family:'SF Mono',Menlo,monospace; font-size:15px; "
+                f'font-weight:700; color:{color};">{value}</div></div>'
+            )
+
+        sharpe_color = GREEN if sharpe_v > 0 else (RED if sharpe_v < 0 else "#e5e7eb")
+        wr_color = GREEN if win_rate_v >= 33.3 else RED  # vs BE_WR for 2:1 R/R
+        m1, m2, m3, m4 = st.columns(4)
+        m1.markdown(
+            _mini("Sharpe (ann.)", f"{sharpe_v:+.2f}", sharpe_color), unsafe_allow_html=True
+        )
+        m2.markdown(
+            _mini("Max drawdown", f"{maxdd_v * 100:.2f}%", RED if maxdd_v > 0 else "#e5e7eb"),
+            unsafe_allow_html=True,
+        )
+        m3.markdown(_mini("Win rate", f"{win_rate_v:.1f}%", wr_color), unsafe_allow_html=True)
+        m4.markdown(
+            _mini("Exposure", f"{exposure_v:.1f}%", GOLD if exposure_v > 0 else "#e5e7eb"),
+            unsafe_allow_html=True,
+        )
+
         st.write("")  # spacer
 
         # --- Row 1: Equity curve (left, 2x) + Open positions (right, 1x) ---
@@ -641,7 +823,7 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
                 unsafe_allow_html=True,
             )
             st.plotly_chart(
-                _equity_chart(eq_df, initial_cash),
+                _equity_chart(eq_df, initial_cash, rows=rows),
                 config={"displayModeBar": False},
                 width="stretch",
             )
@@ -666,13 +848,23 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
             )
 
         with right2:
-            log_html = _live_log_html(rows, n=80)
+            # One panel, two tabs — eliminates "which log is the real one?" confusion.
             st.markdown(
-                f'<div class="panel"><div class="panel-title">Live log'
-                f'<span class="right">last 80 · auto-scroll</span></div>'
-                f"{log_html}</div>",
+                '<div class="panel"><div class="panel-title">Activity feed'
+                '<span class="right">decisions = strategy + risk · stdout = process</span>'
+                "</div>",
                 unsafe_allow_html=True,
             )
+            tab_dec, tab_stdout = st.tabs(["📜 Decisions", "🖥 Loop stdout"])
+            with tab_dec:
+                st.markdown(_live_log_html(rows, n=80), unsafe_allow_html=True)
+            with tab_stdout:
+                loop_log_text = loop_control.tail_log(lines=80) or (
+                    "(no loop log yet — start the loop from the sidebar)"
+                )
+                st.code(loop_log_text, language="bash")
+            st.markdown("</div>", unsafe_allow_html=True)
+
             if s["blocks_by_reason"]:
                 st.markdown('<div class="section-title">Risk blocks</div>', unsafe_allow_html=True)
                 for reason, count in sorted(s["blocks_by_reason"].items(), key=lambda kv: -kv[1]):
@@ -683,18 +875,6 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
                         f'<span style="color:#9ca3af;">{count}</span></div>',
                         unsafe_allow_html=True,
                     )
-
-        # --- Loop output (full width below) ---
-        st.markdown(
-            '<div class="panel"><div class="panel-title">Loop output'
-            '<span class="right">last 30 lines</span></div>',
-            unsafe_allow_html=True,
-        )
-        loop_log_text = (
-            loop_control.tail_log(lines=30) or "(no loop log yet — start the loop from the sidebar)"
-        )
-        st.code(loop_log_text, language="bash")
-        st.markdown("</div>", unsafe_allow_html=True)
 
         # --- Footer disclaimer ---
         last_refresh = pd.Timestamp.utcnow().strftime("%H:%M:%S UTC")
