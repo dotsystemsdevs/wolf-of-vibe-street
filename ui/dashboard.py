@@ -130,11 +130,21 @@ header[data-testid="stHeader"] { background: transparent; }
 .kpi.pos .delta { color: var(--green); }
 .kpi.neg .delta { color: var(--red); }
 
-/* --- Panels: Streamlit native st.container(border=True) — colorize to match --- */
-[data-testid="stVerticalBlockBorderWrapper"] {
-  background: var(--card);
-  border: 1px solid var(--border) !important;
-  border-radius: 0 !important;
+/* --- Section headers (no native container wrapping — too fragile in Streamlit) --- */
+.sect {
+  display: flex; justify-content: space-between; align-items: baseline;
+  margin: 18px 0 8px 0; padding: 0 0 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+.sect .t {
+  font-family: "Inter", sans-serif;
+  font-size: 10px; color: var(--text-2);
+  text-transform: uppercase; letter-spacing: 0.16em;
+  font-weight: 700;
+}
+.sect .r {
+  font-family: "SF Mono", Menlo, monospace;
+  font-size: 10px; color: var(--text-3); letter-spacing: 0.04em;
 }
 
 /* --- Action tags --- */
@@ -869,75 +879,57 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
 
         st.write("")  # spacer
 
-        # Native st.container(border=True) properly contains its children — unlike
-        # `<div class="panel">` markdown wrappers, which Streamlit components escape
-        # (causing chart + tabs to render outside the visible panel border).
-        def _panel_header(title: str, right: str = "") -> None:
-            right_html = (
-                f"<span style=\"color:#737373; font-family:'SF Mono',monospace; "
-                f'font-size:10px; letter-spacing:0.04em;">{right}</span>'
-                if right
-                else ""
-            )
+        # Section header pattern: title left + right annotation, border below.
+        # Bullet-proof — single markdown block, no Streamlit-component containment
+        # tricks. Sections flow vertically; column splits handle horizontal layout.
+        def _section(title: str, right: str = "") -> None:
+            r = f'<span class="r">{right}</span>' if right else ""
             st.markdown(
-                f'<div style="display:flex; justify-content:space-between; '
-                f"align-items:center; font-family:Inter,sans-serif; font-size:9px; "
-                f"color:#a3a3a3; text-transform:uppercase; letter-spacing:0.16em; "
-                f"font-weight:600; margin-bottom:8px; padding-bottom:6px; "
-                f'border-bottom:1px solid #1f1f1f;">'
-                f"<span>{title}</span>{right_html}</div>",
+                f'<div class="sect"><span class="t">{title}</span>{r}</div>',
                 unsafe_allow_html=True,
             )
 
         # --- Row 1: Equity curve (left, 2x) + Open positions (right, 1x) ---
         left, right = st.columns([2, 1])
-        with left, st.container(border=True):
-            _panel_header("Equity curve", f"{total_return * 100:+.2f}% total")
+        with left:
+            _section("Equity curve", f"{total_return * 100:+.2f}% total")
             st.plotly_chart(
                 _equity_chart(eq_df, initial_cash, rows=rows),
                 config={"displayModeBar": False},
                 width="stretch",
             )
-
-        with right, st.container(border=True):
-            _panel_header("Open positions", f"{len(positions)} / {max_pos}")
+        with right:
+            _section("Open positions", f"{len(positions)} / {max_pos}")
             st.markdown(_positions_html(positions), unsafe_allow_html=True)
 
         # --- Row 2: Trade history (left, 2x) + Activity feed (right, 1x) ---
         left2, right2 = st.columns([2, 1])
-        with left2, st.container(border=True):
-            _panel_header("Trade history", "last 25")
+        with left2:
+            _section("Trade history", "last 25")
             st.markdown(_trades_table_html(trades_dataframe(rows)), unsafe_allow_html=True)
 
         with right2:
-            with st.container(border=True):
-                _panel_header(
-                    "Activity feed",
-                    "decisions = strategy+risk · stdout = process",
+            _section("Activity feed", "decisions · loop stdout")
+            tab_dec, tab_stdout = st.tabs(["DECISIONS", "LOOP STDOUT"])
+            with tab_dec:
+                st.markdown(_live_log_html(rows, n=80), unsafe_allow_html=True)
+            with tab_stdout:
+                loop_log_text = loop_control.tail_log(lines=80) or (
+                    "(no loop log yet — start the loop from the sidebar)"
                 )
-                tab_dec, tab_stdout = st.tabs(["DECISIONS", "LOOP STDOUT"])
-                with tab_dec:
-                    st.markdown(_live_log_html(rows, n=80), unsafe_allow_html=True)
-                with tab_stdout:
-                    loop_log_text = loop_control.tail_log(lines=80) or (
-                        "(no loop log yet — start the loop from the sidebar)"
-                    )
-                    st.code(loop_log_text, language="bash")
+                st.code(loop_log_text, language="bash")
 
             if s["blocks_by_reason"]:
-                with st.container(border=True):
-                    _panel_header("Risk blocks")
-                    for reason, count in sorted(
-                        s["blocks_by_reason"].items(), key=lambda kv: -kv[1]
-                    ):
-                        st.markdown(
-                            f'<div style="display:flex; justify-content:space-between; '
-                            f"padding:4px 0; font-family:'SF Mono',Menlo,monospace; "
-                            f'font-size:11px;">'
-                            f'<span style="color:#d97706;">{reason}</span>'
-                            f'<span style="color:#737373;">{count}</span></div>',
-                            unsafe_allow_html=True,
-                        )
+                _section("Risk blocks")
+                for reason, count in sorted(s["blocks_by_reason"].items(), key=lambda kv: -kv[1]):
+                    st.markdown(
+                        f'<div style="display:flex; justify-content:space-between; '
+                        f"padding:4px 0; font-family:'SF Mono',Menlo,monospace; "
+                        f'font-size:11px;">'
+                        f'<span style="color:#d97706;">{reason}</span>'
+                        f'<span style="color:#737373;">{count}</span></div>',
+                        unsafe_allow_html=True,
+                    )
 
         # --- Footer disclaimer ---
         last_refresh = pd.Timestamp.utcnow().strftime("%H:%M:%S UTC")
