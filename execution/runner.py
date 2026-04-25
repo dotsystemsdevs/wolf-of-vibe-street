@@ -11,6 +11,7 @@ Every meaningful event emits a row to the decision log (I-6).
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 from execution.broker import Broker, Order, make_client_order_id
 from memory.decision_log import DecisionEvent, DecisionLog
@@ -25,6 +26,17 @@ class Bar:
     high: float
     low: float
     close: float
+
+
+def _utc_day(ts_ms: int) -> int:
+    """UTC day-number (days since epoch)."""
+    return ts_ms // 86_400_000
+
+
+def _utc_iso_week(ts_ms: int) -> tuple[int, int]:
+    """ISO (year, week) for the given timestamp — same key for all bars in a Mon-Sun span."""
+    iso = datetime.fromtimestamp(ts_ms / 1000.0, tz=UTC).isocalendar()
+    return (iso.year, iso.week)
 
 
 class Executor:
@@ -48,6 +60,8 @@ class Executor:
         self.caps = caps
         self.daily_high_water = initial_cash
         self.weekly_high_water = initial_cash
+        self._current_day: int | None = None
+        self._current_week: tuple[int, int] | None = None
         self._open_stop: float | None = None
         self._open_target: float | None = None
         self._open_signal_id: str | None = None
@@ -61,6 +75,16 @@ class Executor:
 
     def on_bar(self, signal: Signal, bar: Bar) -> None:
         eq = self.equity({signal.symbol: bar.close})
+
+        day = _utc_day(bar.timestamp_ms)
+        week = _utc_iso_week(bar.timestamp_ms)
+        if self._current_day is None or day != self._current_day:
+            self.daily_high_water = eq
+            self._current_day = day
+        if self._current_week is None or week != self._current_week:
+            self.weekly_high_water = eq
+            self._current_week = week
+
         if eq > self.daily_high_water:
             self.daily_high_water = eq
         if eq > self.weekly_high_water:

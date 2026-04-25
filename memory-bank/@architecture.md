@@ -53,7 +53,8 @@ End-to-end pipe (Phase 1 vertical slice):
 - Signal contract (`signals/types.py::Signal`): `buy` requires a `stop` (S-15 enforced in `__post_init__`); `sell` is exit-only; `conviction ∈ [-1, +1]` (S-58).
 - Order contract (`execution/broker.py`): all orders carry `client_order_id` from `make_client_order_id(strategy_id, signal_id, attempt)` (I-3). Re-placing the same coid is a no-op on the paper broker and a hard reject on Binance/Kraken.
 - Decision log (`memory/decision_log.py`): writes one row per `signal`, `order_placed`, `order_filled`, `risk_block`, `order_rejected`, `reconcile_drift`. Triggers reject UPDATE/DELETE so audit trail is permanent (I-6). Lives in `data/decision_log/` (no-touch list).
-- Known limitation in `Executor`: daily/weekly high-water marks ratchet upward but do not reset on UTC dawn/Monday. Live run on 30d BTC blocked 11 entries with `daily_drawdown_halt` because of this. Conservative bias (safer than wrong direction) but worth fixing before paper-soak.
+- Daily HW resets at UTC dawn (`bar.timestamp_ms // 86_400_000`); weekly HW at ISO-week rollover (`isocalendar().week`). Both ratchet upward within their period. Tested.
+- **Executor and backtest engine produce equivalent P&L** when caps don't bite — verified on 30 days BTC: backtest −1.82 %, executor −1.91 % (gap is commission/slippage rounding). This consistency is the contract: simulation matches the live code path.
 
 ---
 

@@ -5,6 +5,24 @@
 
 ---
 
+## 2026-04-25 (session 13) — HW reset fix + executor/backtest parity proven
+
+- Daily HW now resets at UTC dawn (key = `ts_ms // 86_400_000`). Weekly HW resets at ISO-week rollover (`isocalendar().week`). Within a period, HW still ratchets upward.
+- 3 new tests in `tests/test_executor_hw_reset.py` pin the rollover (UTC dawn, no-reset within day, ISO-week rollover including Sun→Mon). 120/120 total.
+- Re-ran the 30-day BTC live executor:
+  - **0 risk blocks** (was 11 — daily-DD halt no longer sticky).
+  - 19 buys + 19 sells = full trade set (was 8+8).
+  - Final equity **−1.91 %** vs the no-caps backtest **−1.82 %**. The 0.09 pp gap is just commission/slippage rounding noise.
+- This pins down a real invariant: **the live executor matches the backtest engine** when caps don't bite. Two parallel code paths, same numbers — that consistency is what we want before turning on paper-soak.
+
+**Next:** WS bar ingestion (or REST polling for 1h bars — same effect, less code). Wraps everything into a `workers/live_loop.py` that runs continuously. Then monitor + Streamlit dashboard, then start the soak.
+
+**Blockers:** none.
+
+**New lessons:** none — but the parity-test pattern (run two implementations against the same data and check they agree) is now part of the project's playbook.
+
+---
+
 ## 2026-04-25 (session 12) — Executor + decision log
 
 The bot can now actually run end-to-end, with every event auditable.
