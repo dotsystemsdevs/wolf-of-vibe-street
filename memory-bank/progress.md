@@ -5,6 +5,21 @@
 
 ---
 
+## 2026-04-25 (session 9) — Features layer (causal)
+
+- `features/compute.py` — `bars_to_df`, `returns`, `ema`, `rsi` (Wilder), `atr` (Wilder), `volatility_regime` (rolling tercile of ATR/close). All hand-rolled on pandas, no extra deps; `ta-lib` C lib is brew-installed but the Python wrapper is not used yet (we can swap in later if perf becomes an issue).
+- `tests/test_compute.py` — 19 tests: happy/edge/failure for each feature + a **parametrized P-05 lookahead guard** that perturbs future bars and asserts past feature values are unchanged. Every feature is on that guard list.
+- 57/57 tests pass; ruff clean.
+- Live verify: ran all features over the 30-day BTC parquet. ema12/26 cross plausibly, RSI ≈ 40 (slight oversold), ATR ≈ $225 (~0.3 % of price), regime distribution ≈ thirds with 71 NaNs at the head (lookback warm-up).
+
+**Next:** Strategy layer — `strategies/baseline_ema_cross.py`. Pure rule, no LLM/ML, outputs `{symbol, side, conviction, stop, target}` per bar. After that: backtest harness wired to it on the 30-day BTC parquet.
+
+**Blockers:** none.
+
+**New lessons:** none — but the lookahead guard pattern is worth keeping in mind for any future feature; I'd consider adding a P-** entry if we ever discover a feature that quietly violated it.
+
+---
+
 ## 2026-04-25 (session 8) — Backfill + Parquet store
 
 - `uv add pandas pyarrow` (numpy 2.4.4, pandas 3.0.2, pyarrow 24.0.0).

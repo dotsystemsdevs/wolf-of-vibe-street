@@ -19,6 +19,7 @@ traderbot/
 ├── data/binance.py         # OHLCV fetcher (CCXT, public REST)
 ├── data/backfill.py        # paginated historical OHLCV
 ├── data/store.py           # Parquet save/load + canonical bars_path()
+├── features/compute.py     # bars_to_df, returns, ema, rsi, atr, volatility_regime
 ├── data/{state,decision_log,bars,cache}/  # gitignored runtime dirs
 │   └── bars/binance/BTC_USDT/1h.parquet (local — 30 days, 720 rows, 34 KB)
 ├── config/live/            # gitignored live-config dir
@@ -31,6 +32,9 @@ Data layer (read-only):
 - `data/store.py` — Parquet save/load. `bars_path(exchange, symbol, timeframe)` → canonical `data/bars/{exchange}/{symbol_with_underscore}/{tf}.parquet`. `save_bars` is idempotent: merges with existing file, dedups, sorts.
 
 All verified live against Binance public REST. No auth used. No order-placement code anywhere yet.
+
+Features layer (causal — I-2 + P-05):
+- `features/compute.py` — `bars_to_df`, `returns`, `ema`, `rsi`, `atr`, `volatility_regime`. Same module imported by train, backtest, live (I-2). All functions are causal — feature at time `t` uses only data ≤ `t`. The lookahead guard test in `tests/test_compute.py::test_no_lookahead_modifying_future_does_not_change_past` parametrizes over every public feature: if any future-touching op (e.g. `.shift(-1)`) is added later, that test fails.
 
 ---
 
