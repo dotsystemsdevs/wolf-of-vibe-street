@@ -20,6 +20,11 @@ traderbot/
 ├── data/backfill.py        # paginated historical OHLCV
 ├── data/store.py           # Parquet save/load + canonical bars_path()
 ├── features/compute.py     # bars_to_df, returns, ema, rsi, atr, volatility_regime
+├── signals/types.py        # Signal dataclass (validates buy → stop required)
+├── strategies/baseline_ema_cross.py  # long-only EMA(12,26) cross w/ ATR stops
+├── risk/sizing.py          # fixed-% risk sizing (default 0.5%, cap 1%)
+├── backtest/engine.py      # walk-forward, single-position, cost-aware sim
+├── backtest/metrics.py     # sharpe, sortino, max_dd, win_rate, BE_WR (S-50)
 ├── data/{state,decision_log,bars,cache}/  # gitignored runtime dirs
 │   └── bars/binance/BTC_USDT/1h.parquet (local — 30 days, 720 rows, 34 KB)
 ├── config/live/            # gitignored live-config dir
@@ -35,6 +40,11 @@ All verified live against Binance public REST. No auth used. No order-placement 
 
 Features layer (causal — I-2 + P-05):
 - `features/compute.py` — `bars_to_df`, `returns`, `ema`, `rsi`, `atr`, `volatility_regime`. Same module imported by train, backtest, live (I-2). All functions are causal — feature at time `t` uses only data ≤ `t`. The lookahead guard test in `tests/test_compute.py::test_no_lookahead_modifying_future_does_not_change_past` parametrizes over every public feature: if any future-touching op (e.g. `.shift(-1)`) is added later, that test fails.
+
+End-to-end pipe (Phase 1 vertical slice):
+- `data → features → strategy → risk → backtest`. One pure function per layer; each layer takes a DataFrame or list and returns one. The 30-day BTC parquet runs through the whole stack in <1s.
+- Signal contract (`signals/types.py::Signal`): `buy` requires a `stop` (S-15 enforced in `__post_init__`); `sell` is exit-only; `conviction ∈ [-1, +1]` (S-58).
+- Backtest invariants: entries fill at *next* bar's open (no peek), stop precedence > target on same-bar collisions (conservative), open positions close at last close (`exit_reason="end_of_data"`).
 
 ---
 

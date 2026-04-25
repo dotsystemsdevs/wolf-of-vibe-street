@@ -29,20 +29,20 @@ Goal: end-to-end pipeline running paper trades on one symbol with one trivial ru
 - [x] **Features layer:**
   - [x] `features/compute.py` — single source of truth, importable from train/backtest/live (I-2).
   - [x] First few features: returns, EMA, RSI, ATR, volatility regime label. *(All causal; P-05 lookahead guard parametrized over every feature in test suite.)*
-- [ ] **Strategy layer:**
-  - [ ] `strategies/baseline_ema_cross.py` — trivial EMA crossover. Outputs `{symbol, side, conviction, stop, target}`.
-  - [ ] No LLM, no ML — just to prove the pipe end-to-end.
+- [x] **Strategy layer:**
+  - [x] `strategies/baseline_ema_cross.py` — trivial EMA crossover. Outputs `{symbol, side, conviction, stop, target}`.
+  - [x] No LLM, no ML — just to prove the pipe end-to-end.
 - [ ] **Risk layer:**
-  - [ ] `risk/sizing.py` — fixed-% sizing on stop distance.
+  - [x] `risk/sizing.py` — fixed-% sizing on stop distance.
   - [ ] `risk/caps.py` — max notional, max positions, daily/weekly DD halts, kill switch.
 - [ ] **Execution layer:**
   - [ ] `execution/broker.py` — interface (place, cancel, status, positions).
   - [ ] `execution/ccxt_paper.py` — paper-mode CCXT (uses real prices, simulated fills with slippage model).
   - [ ] Idempotent client_order_id.
   - [ ] Reconcile-on-startup logic (P-11).
-- [ ] **Backtest layer:**
-  - [ ] Walk-forward harness with realistic costs (commission + spread + slippage stress test).
-  - [ ] Output: per-symbol P&L attribution (S-49), Sharpe, Sortino, max DD, BE_WR check (S-50).
+- [x] **Backtest layer (v1):**
+  - [x] Walk-forward harness with realistic costs (commission + spread + slippage). *(`backtest/engine.py`; entries at next-bar open; stop > target precedence on same-bar.)*
+  - [x] Output: Sharpe, Sortino, max DD, BE_WR check (S-50). *(in `backtest/metrics.py`; per-symbol attribution trivial for Phase 1 since BTC-only — generalize when Phase 2 adds ETH/SOL.)*
 - [ ] **Decision log:**
   - [ ] Append-only SQLite table. Every signal + order + fill writes a row with full rationale.
 - [ ] **Monitor:**

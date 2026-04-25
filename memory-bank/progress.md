@@ -5,6 +5,41 @@
 
 ---
 
+## 2026-04-25 (session 10) — End-to-end pipe: strategy + risk + backtest
+
+Phase 1 vertical slice complete. The whole stack — `data → features → strategy → risk → backtest` — runs on the 30-day BTC parquet in <1s.
+
+- `signals/types.py` — `Signal` dataclass. `__post_init__` enforces S-15: a `buy` without `stop` raises. `sell` is exit-only (stop was set on entry); `hold` requires nothing.
+- `strategies/baseline_ema_cross.py` — long-only EMA(12,26) cross. Stop = close − 2·ATR, target = close + 4·ATR (2:1 R/R). Conviction = |EMA-diff|/close, capped.
+- `risk/sizing.py` — `position_size(equity, entry, stop, risk_pct)`. Default 0.5%, hard cap 1% per design-doc §5. Returns 0 on degenerate inputs (zero distance / zero equity).
+- `backtest/engine.py` — walk-forward, single-position, long-only. Entries fill at next bar's open (no peek). Same-bar stop ⊐ target precedence (conservative). Cost model = commission_bps + slippage_bps. Open positions close at last close as `end_of_data`.
+- `backtest/metrics.py` — `sharpe`, `sortino`, `max_drawdown`, `win_rate`, `break_even_win_rate`, `equity_returns`. Hour-bar annualization = 8760.
+- 24 new tests (Signal: 5; baseline_ema_cross: 5; sizing: 4; backtest engine + metrics: 10). 81/81 total. Ruff clean.
+
+**First live backtest result** (30 days BTC/USDT 1h, $10k start, 0.5% risk, 10 bps commission, 5 bps slippage):
+
+| Metric | Value |
+|---|---|
+| Trades | 19 |
+| Win rate | 26.32 % |
+| BE_WR (2:1) | 33.33 % |
+| Total return | **−1.82 %** |
+| Max DD | 3.37 % |
+| Sharpe (ann.) | −2.73 |
+| BTC buy-and-hold | +12.06 % |
+
+**S-50 fired in practice on the very first run** — actual WR 26 % < BE_WR 33 % means the baseline EMA-cross has no edge at this R/R on this slice. The risk layer kept losses bounded (max DD 3.4 %); the cost model dragged ~ commission+slippage per trade as expected. **This is the test infrastructure working as intended** — we built the pipe; the pipe surfaced honest negative numbers; we did not paper over them.
+
+Per S-30 (boring + alive > clever + dead), the baseline is now the *floor* — not the strategy we ship. Next layer (ML/LLM in Phase 2) has to *beat* this number to earn its place.
+
+**Next:** Either (a) `risk/caps.py` (DD halts, kill switch, max notional) which closes the risk layer, or (b) decision log + monitor (Phase 1 audit trail). Once both are done we have everything needed to start the 7-day paper soak.
+
+**Blockers:** none.
+
+**New lessons:** none new — but worth flagging that S-50 + S-30 fired exactly on schedule in their first real-world test.
+
+---
+
 ## 2026-04-25 (session 9) — Features layer (causal)
 
 - `features/compute.py` — `bars_to_df`, `returns`, `ema`, `rsi` (Wilder), `atr` (Wilder), `volatility_regime` (rolling tercile of ATR/close). All hand-rolled on pandas, no extra deps; `ta-lib` C lib is brew-installed but the Python wrapper is not used yet (we can swap in later if perf becomes an issue).
