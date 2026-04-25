@@ -10,18 +10,18 @@
 - [x] Compile `knowledge.md` (domain).
 - [x] Compile `experiences.md` (pitfalls + success factors).
 - [x] Set up `CLAUDE.md` + `memory-bank/`.
-- [ ] **Resolve open decisions D-1..D-10 in `@design-doc.md`.** Cannot scaffold without these.
-- [ ] Initialize git repo: `git init` + first commit (CLAUDE.md, knowledge.md, experiences.md, memory-bank/).
-- [ ] Add `.gitignore` covering `.env`, `data/state/`, `data/decision_log/`, `*.lock` (auto-managed), Python/TS build artefacts.
+- [x] **Resolve open decisions D-1..D-10 in `@design-doc.md`.** Cannot scaffold without these.
+- [x] Initialize git repo: `git init` + first commit (CLAUDE.md, knowledge.md, experiences.md, memory-bank/).
+- [x] Add `.gitignore` covering `.env`, `data/state/`, `data/decision_log/`, `*.lock` (auto-managed), Python/TS build artefacts.
 - [ ] Decide hosting: local dev → Hetzner/Vultr VPS for Phase 1 paper-soak.
 
 ## Phase 1 — Skeleton + paper-trading baseline
 
 Goal: end-to-end pipeline running paper trades on one symbol with one trivial rule, with full audit trail.
 
-- [ ] Pick package manager (`uv` for Python). Initialize project with src layout.
-- [ ] Create folder skeleton per `CLAUDE.md` §5.
-- [ ] Wire `tests/` with pytest (or vitest if TS). CI on push.
+- [x] Pick package manager (`uv` for Python). Initialize project (flat layout per `CLAUDE.md` §5, not src — top-level mappar = Python-modul).
+- [x] Create folder skeleton per `CLAUDE.md` §5.
+- [ ] Wire `tests/` with pytest (or vitest if TS). CI on push. *(pytest configured + smoke tests green; CI workflow still TODO.)*
 - [ ] **Data layer:**
   - [ ] CCXT client wrapper for one exchange (Binance default).
   - [ ] WebSocket bar ingestion → Parquet.

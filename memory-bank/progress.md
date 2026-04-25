@@ -5,6 +5,23 @@
 
 ---
 
+## 2026-04-25 (session 4) — Phase 1 scaffold landed
+
+- `uv init --bare` → `pyproject.toml` with `requires-python>=3.12` (D-1), no deps yet, dev-group with `pytest`, `pytest-cov`, `ruff`. Ruff configured (line-length 100, target py312, rules E/F/I/B/UP/N/SIM).
+- Folder skeleton per `CLAUDE.md` §5 created: `agents/ strategies/ signals/ features/ execution/ risk/ backtest/ memory/ tools/ api/ ui/ workers/ tests/` + gitignored runtime dirs `data/{state,decision_log,bars,cache}/` and `config/live/`. Each Python module has empty `__init__.py`.
+- `.env.example` created with LIVE_TRADING/KILL_SWITCH gates + placeholders for Anthropic, Binance, Kraken, Telegram. `.env` itself is gitignored.
+- `README.md`: minimal pointer to `CLAUDE.md` + setup commands.
+- `tests/test_smoke.py`: parametrized import test for every module + Python-version assert. **13/13 pass** under `uv run pytest`.
+- `@architecture.md` §1 updated to reflect actual on-disk state.
+
+**Next:** Phase 0 final task — decide hosting beyond Mac Mini (VPS for paper-soak in Phase 1?). Then Phase 1 task 3 (`tests/` with CI on push) and Phase 1 data layer (`execution/ccxt_paper.py` skeleton + Binance OHLCV fetch).
+
+**Blockers:** none. Git author identity warning (defaulted to `diaohm@mac-mini.local`) — should set globally before next commit if user wants attribution to match GitHub account.
+
+**New lessons:** none — this was pure plumbing.
+
+---
+
 ## 2026-04-25 (session 3) — Onboarding done on Mac Mini
 
 - Repo cloned to `/Users/diaohm/Desktop/trade/traderbot/`.

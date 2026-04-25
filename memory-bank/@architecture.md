@@ -1,7 +1,7 @@
 # @architecture.md — Current File Map & Invariants
 
 > Always read at session start. Updated whenever architecture changes.
-> Status as of 2026-04-25: **no code yet — knowledge-gathering phase complete.**
+> Status as of 2026-04-25: **scaffold landed. Empty modules, smoke tests green. No business logic yet.**
 
 ---
 
@@ -9,17 +9,19 @@
 
 ```
 traderbot/
-├── CLAUDE.md          # operating rules
-├── knowledge.md       # domain knowledge (15 sections)
-├── experiences.md     # 33 pitfalls (P-01..P-33), 58 success factors (S-01..S-58)
-└── memory-bank/
-    ├── @architecture.md      # this file
-    ├── @design-doc.md         # what + why
-    ├── implementation-plan.md # ordered tasks
-    └── progress.md            # log of milestones
+├── CLAUDE.md, knowledge.md, experiences.md, README.md
+├── pyproject.toml          # uv project, Python >=3.12, ruff + pytest configured
+├── .env.example            # env-var template (LIVE_TRADING, KILL_SWITCH, API keys)
+├── .gitignore, .gitattributes
+├── memory-bank/            # @architecture, @design-doc, implementation-plan, progress
+├── agents/ strategies/ signals/ features/ execution/ risk/ backtest/
+├── memory/ tools/ api/ ui/ workers/   # all empty modules with __init__.py
+├── data/{state,decision_log,bars,cache}/  # gitignored runtime dirs
+├── config/live/            # gitignored live-config dir
+└── tests/test_smoke.py     # 13 passing tests: every module imports + Python version
 ```
 
-No source code yet. No package manifest, no tests, no executor, no broker connection.
+Modules are empty skeletons. No broker connection, no strategy, no executor — just a verified-importable scaffold.
 
 ---
 
