@@ -5,6 +5,23 @@
 
 ---
 
+## 2026-04-25 (session 7) — First real code: Binance OHLCV fetcher
+
+- `uv add ccxt` → ccxt 4.5.50 (first non-dev dep).
+- `data/binance.py` — `fetch_ohlcv(symbol, timeframe, limit) -> list[Bar]`. TypedDict `Bar`, input validation upfront (symbol format, timeframe whitelist, limit 1..1000), injectable client for tests, no auth (public endpoint).
+- `tests/test_binance.py` — 8 tests: 1 happy (parsing 2 sample rows), 1 edge (empty response → []), 5 invalid-input failures (parametrized), 1 network-error propagation. All pass; total 21/21.
+- `data/__init__.py` added; `data` added to smoke MODULES list.
+- Verified live: pulled 3 BTC/USDT 1h bars from Binance public API. Returned timestamps + OHLCV correctly.
+- I-1 in `@architecture.md` clarified: only `execution/` may *place orders* via broker SDKs; `data/` may use the same SDK read-only (cannot move money).
+
+**Next:** Either WebSocket bar ingestion → Parquet (live ticks) **or** historical backfill (5 years for BTC/USDT) — backfill is more valuable for backtest first, WS for live executor.
+
+**Blockers:** none.
+
+**New lessons:** none.
+
+---
+
 ## 2026-04-25 (session 6) — Hosting locked: Mac Mini through Phase 2
 
 - D-18 added to `@design-doc.md`: Mac Mini stays through Phase 1 + 2 paper-soak; migrate to Hetzner CX22 (~€4/mo) when Phase 3 (real money) begins.

@@ -8,6 +8,7 @@ MODULES = [
     "agents",
     "api",
     "backtest",
+    "data",
     "execution",
     "features",
     "memory",

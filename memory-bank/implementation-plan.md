@@ -23,7 +23,7 @@ Goal: end-to-end pipeline running paper trades on one symbol with one trivial ru
 - [x] Create folder skeleton per `CLAUDE.md` §5.
 - [x] Wire `tests/` with pytest (or vitest if TS). CI on push. *(pytest + ruff lint + ruff format check on push & PR via `.github/workflows/ci.yml`, matrix: Python 3.12 + 3.13.)*
 - [ ] **Data layer:**
-  - [ ] CCXT client wrapper for one exchange (Binance default).
+  - [x] CCXT client wrapper for one exchange (Binance default). *(`data/binance.py` — OHLCV REST fetch with validation + injectable client.)*
   - [ ] WebSocket bar ingestion → Parquet.
   - [ ] Backfill historical bars (5 years if available).
 - [ ] **Features layer:**

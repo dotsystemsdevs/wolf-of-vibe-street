@@ -16,12 +16,13 @@ traderbot/
 ├── memory-bank/            # @architecture, @design-doc, implementation-plan, progress
 ├── agents/ strategies/ signals/ features/ execution/ risk/ backtest/
 ├── memory/ tools/ api/ ui/ workers/   # all empty modules with __init__.py
+├── data/binance.py         # OHLCV fetcher (CCXT, public REST) ← FIRST REAL CODE
 ├── data/{state,decision_log,bars,cache}/  # gitignored runtime dirs
 ├── config/live/            # gitignored live-config dir
 └── tests/test_smoke.py     # 13 passing tests: every module imports + Python version
 ```
 
-Modules are empty skeletons. No broker connection, no strategy, no executor — just a verified-importable scaffold.
+First real module: `data/binance.py` — typed OHLCV fetcher (`fetch_ohlcv(symbol, timeframe, limit) -> list[Bar]`) with input validation and an injectable client for tests. Verified live against Binance public API.
 
 ---
 
@@ -60,7 +61,7 @@ News API   ─► data_worker ─► news (DB)   ──────┘          
 
 | # | Invariant | Why | Enforcement |
 |---|---|---|---|
-| I-1 | Only `executor/` imports broker SDKs. | Single point of order placement; impossible to bypass risk checks. | Lint rule + CI grep. |
+| I-1 | Only `execution/` may **place orders** via broker SDKs. `data/` may use the same SDK read-only (public market-data endpoints, no auth). | Single point of order placement; impossible to bypass risk checks. Read-only data ingestion is fine because it cannot move money. | Lint rule + CI grep on private/auth methods (`create_order`, `cancel_order`, etc.) outside `execution/`. |
 | I-2 | All features computed by `features/` — same code in train, backtest, live. | Train/serve skew = silent model failure (S-57). | Single import path; tests. |
 | I-3 | Every order has an idempotent `client_order_id`. | Retries cannot double-fill. | Executor unit test. |
 | I-4 | `LIVE_TRADING=true` AND human "go live" both required for real orders. | Two-key launch; nobody trips into live by accident. | Boot-time check + audit log. |
