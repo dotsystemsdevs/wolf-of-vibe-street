@@ -36,15 +36,16 @@ Goal: end-to-end pipeline running paper trades on one symbol with one trivial ru
   - [x] `risk/sizing.py` — fixed-% sizing on stop distance.
   - [x] `risk/caps.py` — max notional, max positions, daily/weekly DD halts, kill switch. *(Pure module + 12 tests; will be wired into the executor in the next session — backtest doesn't need it for the single-position baseline.)*
 - [ ] **Execution layer:**
-  - [ ] `execution/broker.py` — interface (place, cancel, status, positions).
-  - [ ] `execution/ccxt_paper.py` — paper-mode CCXT (uses real prices, simulated fills with slippage model).
-  - [ ] Idempotent client_order_id.
-  - [ ] Reconcile-on-startup logic (P-11).
+  - [x] `execution/broker.py` — Order/Fill/Position + `Broker` Protocol.
+  - [x] `execution/ccxt_paper.py` — `PaperBroker` (mark-based fills + slippage + fee; coid-keyed idempotent).
+  - [x] Idempotent client_order_id (`make_client_order_id`, I-3).
+  - [x] `execution/runner.py::Executor` — bar-driven runtime tying signal → caps → broker → log.
+  - [ ] Reconcile-on-startup logic (P-11). *(Live broker only; paper has no out-of-band state to reconcile.)*
 - [x] **Backtest layer (v1):**
   - [x] Walk-forward harness with realistic costs (commission + spread + slippage). *(`backtest/engine.py`; entries at next-bar open; stop > target precedence on same-bar.)*
   - [x] Output: Sharpe, Sortino, max DD, BE_WR check (S-50). *(in `backtest/metrics.py`; per-symbol attribution trivial for Phase 1 since BTC-only — generalize when Phase 2 adds ETH/SOL.)*
-- [ ] **Decision log:**
-  - [ ] Append-only SQLite table. Every signal + order + fill writes a row with full rationale.
+- [x] **Decision log:**
+  - [x] Append-only SQLite table. Every signal + order + fill writes a row with full rationale. *(`memory/decision_log.py`; UPDATE/DELETE blocked by triggers; metadata is JSON-serialized; lives in `data/decision_log/`.)*
 - [ ] **Monitor:**
   - [ ] Heartbeat from each worker.
   - [ ] WS-disconnect detection → pause new orders.

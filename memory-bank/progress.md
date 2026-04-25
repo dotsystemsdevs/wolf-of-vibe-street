@@ -5,6 +5,31 @@
 
 ---
 
+## 2026-04-25 (session 12) — Executor + decision log
+
+The bot can now actually run end-to-end, with every event auditable.
+
+- `memory/decision_log.py` — append-only SQLite. Schema covers signal, order_placed, order_filled, order_rejected, risk_block, reconcile_drift. UPDATE and DELETE are blocked by SQL triggers (I-6).
+- `execution/broker.py` — `Order`, `Fill`, `Position` dataclasses + `Broker` Protocol. `make_client_order_id(strategy_id, signal_id, attempt)` is the I-3 idempotency primitive (32-char SHA-256 prefix; deterministic).
+- `execution/ccxt_paper.py` — `PaperBroker` implements `Broker`. Fills at `mark_price` (passed by executor for stop/target hits) with slippage + commission. Re-placing a coid returns the original Fill (no double-fill).
+- `execution/runner.py::Executor` — bar-driven runner. `on_bar(signal, bar)` does: mark-to-market → intra-bar stop/target check → exit if hit → process new signal → caps check → place → log. Every meaningful event writes a decision row.
+- 24 new tests across 4 files (decision_log: 6, broker: 6, paper_broker: 6, executor: 6). 117/117 total. Ruff clean.
+
+**Live verify on 30-day BTC parquet:**
+- 720 bars processed; 19 buys + 20 sells issued.
+- 8 buy fills + 8 sell fills (16 round trips).
+- **11 buys blocked** by `risk_block(daily_drawdown_halt)` — the risk caps actually enforced what the design promised. Conservative bias here: daily HW only ratchets up, never resets at UTC dawn, so once equity dipped 3 % below the all-time peak the executor stayed locked out for the rest of the run. Safer than the wrong direction but worth fixing before the 7-day soak.
+- Final equity $9,658 (−3.42 %) vs the no-caps backtest's −1.82 %. The gap is the daily-DD halt being too sticky.
+- 755 decision rows persisted to SQLite.
+
+**Next:** Either (a) fix the daily/weekly HW reset (small — UTC dawn / Monday rollover), or (b) the WS bar ingestion + executor loop wrapper that reads live ticks. Probably (a) first since it's a 30-line fix and makes the soak meaningful; then (b) which is the bridge from "bar-by-bar replay" to "live continuous loop".
+
+**Blockers:** none.
+
+**New lessons:** none codified — but if the HW reset bug had bitten us in live trading we'd have written a P-** entry. Worth a watch.
+
+---
+
 ## 2026-04-25 (session 11) — Risk caps + kill switch
 
 - `risk/caps.py` — `RiskCaps`, `RiskState`, `RiskDecision`, `check_entry()`, `kill_switch_active()`. Pure functions; the executor (built in a later session) calls `check_entry()` before any new entry. Caps block entries only — exits are never blocked (a blocked exit could trap an account in a losing position).

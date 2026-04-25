@@ -24,6 +24,10 @@ traderbot/
 ├── strategies/baseline_ema_cross.py  # long-only EMA(12,26) cross w/ ATR stops
 ├── risk/sizing.py          # fixed-% risk sizing (default 0.5%, cap 1%)
 ├── risk/caps.py            # RiskCaps + check_entry() + kill_switch_active()
+├── execution/broker.py     # Order/Fill/Position + Broker Protocol + make_client_order_id (I-3)
+├── execution/ccxt_paper.py # PaperBroker — sim fills @ mark + slippage; coid-keyed idempotency
+├── execution/runner.py     # Executor.on_bar(signal, bar) wires risk caps + broker + log
+├── memory/decision_log.py  # SQLite append-only log (I-6); UPDATE/DELETE blocked by triggers
 ├── backtest/engine.py      # walk-forward, single-position, cost-aware sim
 ├── backtest/metrics.py     # sharpe, sortino, max_dd, win_rate, BE_WR (S-50)
 ├── data/{state,decision_log,bars,cache}/  # gitignored runtime dirs
@@ -43,9 +47,13 @@ Features layer (causal — I-2 + P-05):
 - `features/compute.py` — `bars_to_df`, `returns`, `ema`, `rsi`, `atr`, `volatility_regime`. Same module imported by train, backtest, live (I-2). All functions are causal — feature at time `t` uses only data ≤ `t`. The lookahead guard test in `tests/test_compute.py::test_no_lookahead_modifying_future_does_not_change_past` parametrizes over every public feature: if any future-touching op (e.g. `.shift(-1)`) is added later, that test fails.
 
 End-to-end pipe (Phase 1 vertical slice):
-- `data → features → strategy → risk → backtest`. One pure function per layer; each layer takes a DataFrame or list and returns one. The 30-day BTC parquet runs through the whole stack in <1s.
+- Two parallel runners both produce P&L from the same data + strategy:
+  - `backtest.engine.run_backtest` — pure-function harness for sweeps and tuning (no I/O).
+  - `execution.runner.Executor.on_bar` — bar-driven runtime; the same code path that will run live, with caps enforced and every event logged via `memory.decision_log` (I-6). This is what the paper-soak will run.
 - Signal contract (`signals/types.py::Signal`): `buy` requires a `stop` (S-15 enforced in `__post_init__`); `sell` is exit-only; `conviction ∈ [-1, +1]` (S-58).
-- Backtest invariants: entries fill at *next* bar's open (no peek), stop precedence > target on same-bar collisions (conservative), open positions close at last close (`exit_reason="end_of_data"`).
+- Order contract (`execution/broker.py`): all orders carry `client_order_id` from `make_client_order_id(strategy_id, signal_id, attempt)` (I-3). Re-placing the same coid is a no-op on the paper broker and a hard reject on Binance/Kraken.
+- Decision log (`memory/decision_log.py`): writes one row per `signal`, `order_placed`, `order_filled`, `risk_block`, `order_rejected`, `reconcile_drift`. Triggers reject UPDATE/DELETE so audit trail is permanent (I-6). Lives in `data/decision_log/` (no-touch list).
+- Known limitation in `Executor`: daily/weekly high-water marks ratchet upward but do not reset on UTC dawn/Monday. Live run on 30d BTC blocked 11 entries with `daily_drawdown_halt` because of this. Conservative bias (safer than wrong direction) but worth fixing before paper-soak.
 
 ---
 
