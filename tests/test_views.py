@@ -55,6 +55,7 @@ def test_trades_dataframe_pairs_buy_then_sell() -> None:
     ]
     trades = trades_dataframe(rows)
     assert len(trades) == 1
+    assert trades.iloc[0]["symbol"] == "BTC/USDT"
     assert trades.iloc[0]["pnl"] == pytest.approx(10.0)
     assert trades.iloc[0]["gross_pnl"] == pytest.approx(10.0)
     assert trades.iloc[0]["fees"] == 0.0

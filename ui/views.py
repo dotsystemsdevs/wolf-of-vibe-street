@@ -66,6 +66,7 @@ def trades_dataframe(rows: list[dict[str, Any]]) -> pd.DataFrame:
             pnl = gross - entry_fee - exit_fee
             trades.append(
                 {
+                    "symbol": str(open_buy.get("symbol") or f.get("symbol") or ""),
                     "entry_ts": int(open_buy["timestamp_ms"]),
                     "exit_ts": int(f["timestamp_ms"]),
                     "qty": qty,
@@ -84,6 +85,7 @@ def trades_dataframe(rows: list[dict[str, Any]]) -> pd.DataFrame:
         if trades
         else pd.DataFrame(
             columns=[
+                "symbol",
                 "entry_ts",
                 "exit_ts",
                 "qty",

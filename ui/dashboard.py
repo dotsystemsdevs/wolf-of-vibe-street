@@ -2,7 +2,7 @@
 
 Run: `uv run streamlit run ui/dashboard.py`. Dark theme via `.streamlit/config.toml`.
 Reads SQLite decision log at `data/decision_log/traderbot.db` (override with env
-`TRADERBOT_LOG_PATH`). Auto-refreshes every 10 seconds.
+`TRADERBOT_LOG_PATH`). Auto-refreshes periodically (default 30s, see `REFRESH_INTERVAL_S`).
 """
 
 from __future__ import annotations
@@ -19,6 +19,7 @@ import os  # noqa: E402
 import pandas as pd  # noqa: E402
 import plotly.graph_objects as go  # noqa: E402
 import streamlit as st  # noqa: E402
+import streamlit.components.v1 as components  # noqa: E402
 
 from backtest.compare import (  # noqa: E402
     DEFAULT_SYMBOLS,
@@ -41,59 +42,111 @@ from ui.views import (  # noqa: E402
 
 DEFAULT_DB_PATH = Path("data/decision_log/traderbot.db")
 REFRESH_INTERVAL_S = 30
+# Bump when UI changes — if you do not see this in the header, you are not running this file.
+DASHBOARD_BUILD = "2026-04-26d"
 
 GREEN = "#22c55e"
 RED = "#ef4444"
 GREY = "#6b7280"
 GOLD = "#fbbf24"
 
+FONT_LINK = """
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Oswald:wght@500;600;700&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+"""
+
 CSS = """
 <style>
-/* Institutional dark — single amber accent, mono numbers, no decoration. */
+/* Wolf-of-Vibe-Street execution desk — dark floor, amber edge, tape typography */
 :root {
-  --bg:        #0a0a0a;
-  --card:      #111111;
-  --border:    #1f1f1f;
+  --bg:        #070707;
+  --card:      #0e0e0e;
+  --border:    #1a1a1a;
   --border-2:  #2a2a2a;
-  --text:      #e8e8e8;
-  --text-2:    #a3a3a3;
-  --text-3:    #737373;
-  --accent:    #d97706;   /* amber, used sparingly */
-  --green:     #16a34a;
-  --red:       #dc2626;
+  --text:      #f0f0f0;
+  --text-2:    #a8a8a8;
+  --text-3:    #6b6b6b;
+  --accent:    #ea580c;
+  --accent-dim: rgba(234, 88, 12, 0.35);
+  --green:     #22c55e;
+  --red:       #ef4444;
 }
 
-.stApp { background: var(--bg) !important; }
+.stApp {
+  background-color: var(--bg) !important;
+  background-image:
+    linear-gradient(165deg, rgba(234, 88, 12, 0.04) 0%, transparent 42%),
+    repeating-linear-gradient(
+      0deg, transparent, transparent 48px,
+      rgba(255,255,255,0.012) 48px, rgba(255,255,255,0.012) 49px
+    ) !important;
+}
 header[data-testid="stHeader"] { background: transparent; }
 .stDeployButton, footer { display: none; }
-.block-container { padding-top: 2rem; padding-bottom: 1rem; max-width: 100%; }
+.block-container { padding-top: 1.25rem; padding-bottom: 1rem; max-width: 100%; }
 
-/* --- Brand --- */
-.brand {
-  font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
-  font-size: 13px; font-weight: 700; letter-spacing: 0.18em;
-  color: var(--text); text-transform: uppercase;
+/* --- Header: main title + tape --- */
+.wolf-header {
+  padding: 4px 0 18px 0;
+  margin-bottom: 8px;
+  border-bottom: 2px solid transparent;
+  border-image: linear-gradient(90deg, var(--green), var(--accent), var(--red)) 1;
 }
-.brand .sep { color: var(--text-3); margin: 0 8px; font-weight: 400; }
-.brand .sub { color: var(--text-3); font-size: 11px; font-weight: 500;
-  letter-spacing: 0.14em; margin-left: 10px; }
+.wolf-main {
+  font-family: "Bebas Neue", Impact, sans-serif;
+  font-size: clamp(28px, 4.5vw, 40px);
+  line-height: 0.95;
+  letter-spacing: 0.14em;
+  color: #fafafa;
+  text-transform: uppercase;
+  text-shadow: 0 0 42px rgba(234, 88, 12, 0.2);
+}
+.wolf-tagline {
+  font-family: "Oswald", sans-serif;
+  font-weight: 500;
+  font-size: 11px;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  margin-top: 6px;
+}
+.wolf-dash-label {
+  font-family: "Oswald", sans-serif;
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  color: var(--accent);
+  margin-right: 8px;
+}
+.wolf-build {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 10px;
+  color: var(--text-3);
+  letter-spacing: 0.08em;
+  margin-left: 10px;
+}
 
-/* --- Mode tag (PAPER / LIVE) — sober, no glow, no pulse --- */
+/* --- Mode tag (PAPER / LIVE) --- */
 .mode {
-  display: inline-block; margin-left: 12px;
-  padding: 2px 8px;
-  font-family: "SF Mono", Menlo, monospace;
-  font-size: 10px; font-weight: 700; letter-spacing: 0.14em;
+  display: inline-block;
+  padding: 3px 10px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 10px; font-weight: 700; letter-spacing: 0.12em;
   border: 1px solid;
-  vertical-align: 1px;
+  vertical-align: 2px;
 }
-.mode.paper { color: var(--text-2); border-color: var(--border-2); }
+.mode.paper {
+  color: var(--text-2);
+  border-color: var(--border-2);
+  background: rgba(255,255,255,0.03);
+}
 .mode.live  { color: #fff; background: var(--red); border-color: var(--red); }
 
-/* --- Status text (RUN / IDLE / OFF) — text, not dot --- */
+/* --- Status strip --- */
 .status {
-  font-family: "SF Mono", Menlo, monospace;
-  font-size: 11px; letter-spacing: 0.10em;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px; letter-spacing: 0.06em;
   color: var(--text-2);
 }
 .status .v { color: var(--text); font-weight: 600; }
@@ -101,72 +154,97 @@ header[data-testid="stHeader"] { background: transparent; }
 .status .v.idle { color: var(--accent); }
 .status .v.off  { color: var(--red); }
 
-/* --- KPI cards — flat, dense, mono --- */
+/* --- KPI cards — tape edge, mono numbers --- */
 .kpi {
-  background: var(--card);
+  background: linear-gradient(180deg, #121212 0%, var(--card) 100%);
   border: 1px solid var(--border);
+  border-top: 2px solid var(--accent);
   padding: 12px 14px;
   height: 100%;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
 }
 .kpi .label {
-  font-family: "Inter", sans-serif;
+  font-family: "Oswald", sans-serif;
   font-size: 9px; color: var(--text-3);
-  text-transform: uppercase; letter-spacing: 0.16em;
+  text-transform: uppercase; letter-spacing: 0.2em;
   margin-bottom: 10px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .kpi .value {
-  font-family: "SF Mono", Menlo, monospace;
-  font-size: 22px; font-weight: 600; line-height: 1.0;
-  color: var(--text); letter-spacing: -0.01em;
+  font-family: "JetBrains Mono", monospace;
+  font-size: clamp(15px, 1.8vw, 22px);
+  font-weight: 700; line-height: 1.0;
+  color: var(--text); letter-spacing: -0.02em;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .kpi .delta {
-  font-family: "SF Mono", Menlo, monospace;
+  font-family: "JetBrains Mono", monospace;
   font-size: 11px; color: var(--text-3);
   margin-top: 6px; letter-spacing: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .kpi.pos .value { color: var(--green); }
 .kpi.neg .value { color: var(--red); }
 .kpi.pos .delta { color: var(--green); }
 .kpi.neg .delta { color: var(--red); }
 
-/* --- Section headers (no native container wrapping — too fragile in Streamlit) --- */
+.kpi-mini {
+  background: linear-gradient(180deg, #101010 0%, #0c0c0c 100%);
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--accent-dim);
+  padding: 8px 12px;
+}
+.kpi-mini .lbl {
+  font-family: "Oswald", sans-serif;
+  font-size: 9px; color: var(--text-3);
+  text-transform: uppercase; letter-spacing: 0.18em;
+  margin-bottom: 4px;
+}
+.kpi-mini .val {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 16px; font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- Section headers --- */
 .sect {
   display: flex; justify-content: space-between; align-items: baseline;
-  margin: 18px 0 8px 0; padding: 0 0 6px 0;
+  margin: 20px 0 8px 0; padding: 0 0 6px 0;
   border-bottom: 1px solid var(--border);
 }
 .sect .t {
-  font-family: "Inter", sans-serif;
-  font-size: 10px; color: var(--text-2);
-  text-transform: uppercase; letter-spacing: 0.16em;
-  font-weight: 700;
+  font-family: "Oswald", sans-serif;
+  font-size: 11px; color: var(--text-2);
+  text-transform: uppercase; letter-spacing: 0.22em;
+  font-weight: 600;
 }
 .sect .r {
-  font-family: "SF Mono", Menlo, monospace;
+  font-family: "JetBrains Mono", monospace;
   font-size: 10px; color: var(--text-3); letter-spacing: 0.04em;
 }
 
 /* --- Action tags --- */
 .act {
   display: inline-block; padding: 1px 6px;
-  font-family: "SF Mono", Menlo, monospace;
+  font-family: "JetBrains Mono", monospace;
   font-size: 10px; font-weight: 700; letter-spacing: 0.08em;
   border: 1px solid;
 }
-.act-buy   { color: var(--green); border-color: rgba(22,163,74,0.4); }
-.act-close { color: var(--red);   border-color: rgba(220,38,38,0.4); }
+.act-buy   { color: var(--green); border-color: rgba(34,197,94,0.45); }
+.act-close { color: var(--red);   border-color: rgba(239,68,68,0.45); }
 
 /* --- Tables --- */
 .t {
   width: 100%; border-collapse: collapse;
-  font-family: "SF Mono", Menlo, monospace;
+  font-family: "JetBrains Mono", monospace;
   font-size: 11px;
 }
 .t thead th {
-  font-family: "Inter", sans-serif;
+  font-family: "Oswald", sans-serif;
   font-size: 9px; color: var(--text-3);
-  text-transform: uppercase; letter-spacing: 0.12em;
+  text-transform: uppercase; letter-spacing: 0.16em;
   text-align: left; padding: 8px 12px;
   border-bottom: 1px solid var(--border);
   font-weight: 600;
@@ -175,7 +253,7 @@ header[data-testid="stHeader"] { background: transparent; }
   padding: 7px 12px; border-bottom: 1px solid var(--border);
   color: var(--text);
 }
-.t tbody tr:hover { background: #161616; }
+.t tbody tr:hover { background: #141414; }
 .t .num { text-align: right; font-variant-numeric: tabular-nums; }
 .t .pos { color: var(--green); }
 .t .neg { color: var(--red); }
@@ -183,8 +261,9 @@ header[data-testid="stHeader"] { background: transparent; }
 
 /* --- Activity feed (log) --- */
 .feed {
-  background: var(--bg);
-  font-family: "SF Mono", Menlo, monospace;
+  background: #080808;
+  border: 1px solid var(--border);
+  font-family: "JetBrains Mono", monospace;
   font-size: 11px; line-height: 1.55;
   padding: 8px 12px;
   max-height: 380px; overflow-y: auto;
@@ -195,32 +274,43 @@ header[data-testid="stHeader"] { background: transparent; }
 .feed .err  { color: var(--red); }
 .feed .warn { color: var(--accent); }
 .feed .sig  { color: var(--text-2); }
+.feed .log-line { padding: 2px 0; line-height: 1.5; }
+.feed .log-time { color: var(--text-3); margin-right: 8px; }
+.feed .log-buy { color: var(--green); }
+.feed .log-sell { color: var(--red); }
+.feed .log-block { color: var(--accent); }
+.feed .log-sig { color: var(--text-2); }
 
 /* --- Footer --- */
 .footer {
-  margin-top: 32px; padding: 12px 12px;
+  margin-top: 32px; padding: 14px 12px;
   border-top: 1px solid var(--border);
-  display: flex; justify-content: space-between;
-  font-family: "SF Mono", Menlo, monospace;
+  display: flex; justify-content: space-between; align-items: center;
+  font-family: "Oswald", sans-serif;
   font-size: 10px; color: var(--text-3);
-  letter-spacing: 0.10em; text-transform: uppercase;
+  letter-spacing: 0.14em; text-transform: uppercase;
   clear: both;
+}
+.footer .mono {
+  font-family: "JetBrains Mono", monospace;
+  letter-spacing: 0.06em;
+  color: var(--text-2);
 }
 
 /* Streamlit overrides */
 .muted { color: var(--text-3); font-size: 11px; }
 .section-title {
-  font-family: "Inter", sans-serif;
-  font-size: 9px; color: var(--text-2); text-transform: uppercase;
-  letter-spacing: 0.16em; font-weight: 600;
+  font-family: "Oswald", sans-serif;
+  font-size: 10px; color: var(--text-2); text-transform: uppercase;
+  letter-spacing: 0.2em; font-weight: 600;
   margin: 14px 0 6px 0; padding-bottom: 4px;
   border-bottom: 1px solid var(--border);
 }
 
 /* Streamlit tabs — neutralize colors */
 button[data-baseweb="tab"] {
-  font-family: "Inter", sans-serif !important;
-  font-size: 11px !important; letter-spacing: 0.10em !important;
+  font-family: "Oswald", sans-serif !important;
+  font-size: 11px !important; letter-spacing: 0.14em !important;
   text-transform: uppercase !important; font-weight: 600 !important;
   color: var(--text-3) !important;
 }
@@ -281,10 +371,10 @@ def _equity_chart(
         # the misleading Plotly auto-axis (-1 to 3) that defaults when no traces.
         fig.add_hline(
             y=initial_cash,
-            line={"color": "#737373", "width": 1, "dash": "dot"},
+            line={"color": "#6b6b6b", "width": 1, "dash": "dot"},
             annotation_text=f"Start ${initial_cash:,.0f}",
             annotation_position="top right",
-            annotation_font_color="#737373",
+            annotation_font_color="#6b6b6b",
             annotation_font_size=10,
         )
         fig.add_annotation(
@@ -294,14 +384,14 @@ def _equity_chart(
             x=0.5,
             y=0.5,
             showarrow=False,
-            font={"color": "#737373", "size": 13},
+            font={"color": "#6b6b6b", "size": 13},
         )
         fig.update_xaxes(visible=False)
         fig.update_yaxes(
             range=[initial_cash * 0.95, initial_cash * 1.05],
             tickprefix="$",
             tickformat=",.0f",
-            gridcolor="#1f1f1f",
+            gridcolor="#1a1a1a",
         )
     else:
         ts = pd.to_datetime(eq_df["timestamp_ms"], unit="ms", utc=True)
@@ -327,7 +417,7 @@ def _equity_chart(
                 x=ts,
                 y=eq_df["equity"],
                 mode="lines",
-                line={"color": "#d97706", "width": 1.8, "shape": "hv"},
+                line={"color": "#ea580c", "width": 1.8, "shape": "hv"},
                 name="Strategy",
                 hovertemplate="Strat %{y:$,.2f}<extra></extra>",
             )
@@ -381,19 +471,19 @@ def _equity_chart(
     fig.update_layout(
         height=300,
         margin={"l": 4, "r": 4, "t": 4, "b": 4},
-        paper_bgcolor="#111111",
-        plot_bgcolor="#111111",
+        paper_bgcolor="#0e0e0e",
+        plot_bgcolor="#0e0e0e",
         xaxis={
-            "gridcolor": "#1f2937",
+            "gridcolor": "#1a1a1a",
             "showspikes": True,
             "spikemode": "across",
-            "spikecolor": "#374151",
+            "spikecolor": "#2a2a2a",
             "spikethickness": 1,
         },
         # autorange=True + tight padding lets the chart zoom to the actual range,
         # not a forced [$0, max] which makes small moves invisible.
         yaxis={
-            "gridcolor": "#1f2937",
+            "gridcolor": "#1a1a1a",
             "tickprefix": "$",
             "tickformat": ",.0f",
             "autorange": True,
@@ -406,63 +496,44 @@ def _equity_chart(
             "y": 1.02,
             "x": 0,
             "bgcolor": "rgba(0,0,0,0)",
-            "font": {"size": 10, "color": "#9ca3af"},
+            "font": {"size": 10, "color": "#a8a8a8"},
         },
         hovermode="x unified",
     )
     return fig
 
 
-def _badge(label: str, kind: str) -> str:
-    return f'<span class="badge badge-{kind}">{label}</span>'
-
-
-def _trades_table_html(trades: pd.DataFrame, fills: pd.DataFrame | None = None) -> str:
-    """Reference-style: TIME · ACTION badge · SYMBOL · QTY · DETAILS.
-
-    DETAILS encodes everything secondary in one column: SL/TP for opens, exit-reason
-    + P&L % for closes. Compact + scannable like the reference image.
-    """
-    if trades.empty and (fills is None or fills.empty):
-        return '<div class="muted" style="padding:14px;">No trades or fills yet.</div>'
-
-    items: list[tuple[int, str, str, float, str]] = []
-    for _, t in trades.tail(60).iterrows():
-        pnl = float(t["pnl"])
-        ret = float(t["return_pct"]) * 100
-        reason = (t["exit_reason"] or "exit").replace("_", "-")
-        details = (
-            f"{reason} · ${float(t['exit_price']):,.2f} "
-            f'<span class="{"pos" if pnl >= 0 else "neg"}">P&amp;L {pnl:+,.2f} ({ret:+.2f}%)</span>'
-        )
-        items.append((int(t["exit_ts"]), "CLOSE", "BTC/USDT", float(t["qty"]), details))
-        details_buy = (
-            f"SL ${float(t['entry_price']) * 0.97:,.2f} / TP ${float(t['entry_price']) * 1.04:,.2f}"
-        )
-        items.append((int(t["entry_ts"]), "BUY", "BTC/USDT", float(t["qty"]), details_buy))
-
-    items.sort(key=lambda x: -x[0])
-    items = items[:25]
+def _trades_table_html(trades: pd.DataFrame) -> str:
+    """One row per closed round-trip: exit time, symbol, qty, entry/exit, net P&L, reason."""
+    if trades.empty:
+        return '<div class="muted" style="padding:14px;">No completed trades yet.</div>'
 
     rows_html: list[str] = []
-    for ts, action, sym, qty, details in items:
-        act_cls = "act-buy" if action == "BUY" else "act-close"
+    for _, t in trades.tail(25).iloc[::-1].iterrows():
+        sym = str(t.get("symbol") or "—")
+        pnl = float(t["pnl"])
+        ret = float(t["return_pct"]) * 100
+        reason = (t["exit_reason"] or "exit").replace("_", " ")
+        pnl_cls = "pos" if pnl > 0 else ("neg" if pnl < 0 else "muted")
         rows_html.append(
-            f"<tr>"
-            f'<td class="muted">{_ts_to_str(ts, "%m-%d %H:%M")}</td>'
-            f'<td><span class="act {act_cls}">{action}</span></td>'
+            "<tr>"
+            f'<td class="muted">{_ts_to_str(int(t["exit_ts"]), "%m-%d %H:%M")}</td>'
             f"<td><strong>{sym}</strong></td>"
-            f'<td class="num">{qty:.6f}</td>'
-            f'<td class="muted">{details}</td>'
-            f"</tr>"
+            f'<td class="num">{float(t["qty"]):.6f}</td>'
+            f'<td class="num">${float(t["entry_price"]):,.2f}</td>'
+            f'<td class="num">${float(t["exit_price"]):,.2f}</td>'
+            f'<td class="num {pnl_cls}">{pnl:+,.2f}</td>'
+            f'<td class="num {pnl_cls}">{ret:+.2f}%</td>'
+            f'<td class="muted">{reason}</td>'
+            "</tr>"
         )
     return (
         '<table class="t">'
         "<thead><tr>"
-        "<th>TIME</th><th>ACTION</th><th>SYMBOL</th>"
-        '<th class="num">QTY</th><th>DETAILS</th>'
-        "</tr></thead>"
-        "<tbody>" + "".join(rows_html) + "</tbody></table>"
+        "<th>EXIT</th><th>SYMBOL</th>"
+        '<th class="num">QTY</th><th class="num">ENTRY</th><th class="num">EXIT</th>'
+        '<th class="num">NET P&amp;L</th><th class="num">RET</th><th>REASON</th>'
+        "</tr></thead><tbody>" + "".join(rows_html) + "</tbody></table>"
     )
 
 
@@ -502,10 +573,15 @@ def _live_log_html(rows: list[dict], n: int = 30) -> str:
             f'<span class="{cls}">{txt}</span></div>'
         )
     if not lines:
-        return '<div class="muted">No actionable events yet — only hold signals.</div>'
+        return (
+            '<div class="feed" style="border:1px solid #1a1a1a;">'
+            'No actionable events yet — only <span class="muted">hold</span> signals '
+            "(normal between bar closes).</div>"
+        )
     return (
-        '<div style="background:#0b0f17; border:1px solid #1f2937; border-radius:6px; '
-        'padding:8px 12px; max-height:340px; overflow-y:auto;">' + "".join(lines) + "</div>"
+        '<div class="feed" style="border:1px solid #1a1a1a; max-height:340px;">'
+        + "".join(lines)
+        + "</div>"
     )
 
 
@@ -623,12 +699,21 @@ def _positions_html(positions: list[dict]) -> str:
 
 def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
     st.set_page_config(page_title="traderbot", layout="wide", initial_sidebar_state="expanded")
-    st.markdown(CSS, unsafe_allow_html=True)
-    # Real auto-refresh — header text claimed it; this makes it true.
-    st.markdown(
-        f"<script>setTimeout(function(){{window.parent.location.reload();}}, "
-        f"{REFRESH_INTERVAL_S * 1000});</script>",
-        unsafe_allow_html=True,
+    st.markdown(FONT_LINK + CSS, unsafe_allow_html=True)
+    # Full-page reload: must run in parent frame; guard so Streamlit remounts do not stack timers.
+    ms = int(REFRESH_INTERVAL_S * 1000)
+    components.html(
+        f"<script>"
+        f"try {{"
+        f"  var w = window.parent || window.top || window;"
+        f"  if (!w.__traderbot_dash_reload_scheduled) {{"
+        f"    w.__traderbot_dash_reload_scheduled = true;"
+        f"    setTimeout(function() {{ w.location.reload(); }}, {ms});"
+        f"  }}"
+        f"}} catch (e) {{}}"
+        f"</script>",
+        height=0,
+        width=0,
     )
 
     rows: list[dict] = []
@@ -678,21 +763,27 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
     next_bar_str = f"{nb_h}h {nb_min:02d}m" if nb_h else f"{nb_min:02d}:{nb_sec:02d}"
 
     st.markdown(
-        f'<div style="display:flex; justify-content:space-between; align-items:center; '
-        f"padding-bottom:10px; border-bottom:1px solid #1f1f1f; margin-bottom:14px; "
-        f'flex-wrap:wrap; gap:10px;">'
-        f'<div class="brand">WOLF OF VIBE STREET'
-        f'<span class="sub">DASHBOARD</span>'
-        f'<span class="mode {mode_cls}">{mode_text}</span></div>'
-        f'<div class="status" style="display:flex; gap:14px; flex-wrap:wrap;">'
-        f'<span><span style="color:#737373;">SYMBOL</span> '
+        f'<div class="wolf-header">'
+        f'<div style="display:flex; justify-content:space-between; align-items:flex-start; '
+        f'flex-wrap:wrap; gap:16px;">'
+        f"<div>"
+        f'<div class="wolf-main">Wolf of Vibe Street</div>'
+        f'<div class="wolf-tagline">Execution desk · Paper session · Full tape</div>'
+        f'<div style="margin-top:10px;">'
+        f'<span class="wolf-dash-label">Dashboard</span>'
+        f'<span class="mode {mode_cls}">{mode_text}</span>'
+        f'<span class="wolf-build">BUILD {DASHBOARD_BUILD}</span>'
+        f"</div></div>"
+        f'<div class="status" style="display:flex; gap:14px; flex-wrap:wrap; '
+        f'justify-content:flex-end; text-align:right;">'
+        f'<span><span style="color:#6b6b6b;">SYMBOL</span> '
         f'<span class="v">{symbol_env} · {timeframe}</span></span>'
-        f'<span><span style="color:#737373;">NEXT BAR</span> '
+        f'<span><span style="color:#6b6b6b;">NEXT BAR</span> '
         f'<span class="v">{next_bar_str}</span></span>'
         f'<span class="v">{now_utc_str}</span>'
-        f'<span><span style="color:#737373;">STATUS</span> '
+        f'<span><span style="color:#6b6b6b;">STATUS</span> '
         f'<span class="v {status_cls}">{status_v}</span></span>'
-        f"</div></div>",
+        f"</div></div></div>",
         unsafe_allow_html=True,
     )
 
@@ -702,7 +793,7 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
             f"(`uv run python -m workers.live_loop`) — page auto-refreshes."
         )
 
-    tab_overview, tab_compare = st.tabs(["OVERVIEW", "BACKTEST COMPARE"])
+    tab_overview, tab_compare = st.tabs(["DESK", "COMPARE"])
 
     with tab_overview:
         # Soak health — green/yellow/red banner so a morning check is one glance.
@@ -712,6 +803,7 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
             bot_running=loop_status.running,
             kill_switch_on=kill_switch_active(kill_switch_path),
             now_ms=int(pd.Timestamp.utcnow().timestamp() * 1000),
+            expected_bar_seconds=tf_seconds,
         )
         worst = "ok"
         for c in checks:
@@ -720,30 +812,30 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
                 break
             if c["status"] == "warn" and worst != "error":
                 worst = "warn"
-        banner_color = {"ok": "#16a34a", "warn": "#d97706", "error": "#dc2626"}[worst]
+        banner_color = {"ok": "#22c55e", "warn": "#ea580c", "error": "#ef4444"}[worst]
         banner_label = {"ok": "HEALTHY", "warn": "ATTENTION", "error": "ISSUES"}[worst]
         st.markdown(
-            f'<div style="background:#111111; border:1px solid #1f1f1f; '
-            f"border-left:2px solid {banner_color}; "
+            f'<div style="background:linear-gradient(180deg,#121212 0%,#0c0c0c 100%); '
+            f"border:1px solid #1a1a1a; border-left:2px solid {banner_color}; "
             f'padding:10px 14px; margin-bottom:10px;">'
             f'<div style="display:flex; justify-content:space-between; align-items:center;">'
-            f'<span style="font-family:Inter,sans-serif; font-size:9px; color:#a3a3a3; '
-            f'text-transform:uppercase; letter-spacing:0.16em; font-weight:600;">'
+            f'<span style="font-family:Oswald,sans-serif; font-size:10px; color:#6b6b6b; '
+            f'text-transform:uppercase; letter-spacing:0.2em; font-weight:600;">'
             f"Soak status</span>"
-            f"<span style=\"font-family:'SF Mono',Menlo,monospace; "
+            f"<span style=\"font-family:'JetBrains Mono',monospace; "
             f"color:{banner_color}; font-weight:700; font-size:11px; "
-            f'letter-spacing:0.14em;">{banner_label}</span></div>'
+            f'letter-spacing:0.1em;">{banner_label}</span></div>'
             f'<div style="margin-top:8px; display:grid; '
             f"grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap:4px 16px; "
-            f"font-family:'SF Mono',Menlo,monospace; font-size:10px;\">"
+            f"font-family:'JetBrains Mono',monospace; font-size:10px;\">"
             + "".join(
                 '<div><span style="color:'
-                + {"ok": "#16a34a", "warn": "#d97706", "error": "#dc2626"}[c["status"]]
+                + {"ok": "#22c55e", "warn": "#ea580c", "error": "#ef4444"}[c["status"]]
                 + '; font-weight:700;">['
                 + c["status"].upper()[:3]
                 + "]</span> "
-                f'<span style="color:#e8e8e8;">{c["name"]}</span> '
-                f'<span style="color:#737373;">— {c["message"]}</span></div>'
+                f'<span style="color:#f0f0f0;">{c["name"]}</span> '
+                f'<span style="color:#6b6b6b;">— {c["message"]}</span></div>'
                 for c in checks
             )
             + "</div></div>",
@@ -773,11 +865,17 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
                 f"{delta_html}</div>"
             )
 
-        k1, k2, k3, k4, k5 = st.columns(5)
+        # 4 cards (not 5) — "Total P&L" was redundant with Equity-card delta. With
+        # the sidebar open the 5-column layout broke "$10,000.00" across 3 lines;
+        # 4 columns + clamp()'d font keeps values on one line down to ~480px wide.
+        k1, k2, k3, k4 = st.columns(4)
         delta_eq = current_equity - initial_cash
         k1.markdown(
             _kpi(
-                _sign(delta_eq), "Equity", f"${current_equity:,.2f}", f"{total_return * 100:+.2f}%"
+                _sign(delta_eq),
+                "Equity",
+                f"${current_equity:,.2f}",
+                f"{total_return * 100:+.2f}% · ${delta_eq:+,.2f}",
             ),
             unsafe_allow_html=True,
         )
@@ -795,20 +893,11 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
                 _sign(today_pnl),
                 "Day P&L (today UTC)",
                 f"${today_pnl:+,.2f}" if today_pnl else "$0.00",
-                "",
+                "since 00:00 UTC",
             ),
             unsafe_allow_html=True,
         )
         k4.markdown(
-            _kpi(
-                _sign(delta_eq),
-                "Total P&L (since start)",
-                f"${delta_eq:+,.2f}",
-                f"{total_return * 100:+.2f}%",
-            ),
-            unsafe_allow_html=True,
-        )
-        k5.markdown(
             _kpi("", "Positions", str(len(positions)), f"max {max_pos}"),
             unsafe_allow_html=True,
         )
@@ -833,49 +922,43 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
             else 0.0
         )
 
-        neutral = "#a3a3a3"
+        neutral = "#a8a8a8"
 
-        def _mini(label: str, value: str, color: str = "#e8e8e8") -> str:
-            # Subordinate to KPI cards: smaller value (16px), tighter padding.
+        def _mini(label: str, value: str, color: str = "#f0f0f0") -> str:
             return (
-                f'<div style="background:#111111; border:1px solid #1f1f1f; '
-                f'padding:8px 12px;">'
-                f'<div style="font-family:Inter,sans-serif; font-size:9px; color:#737373; '
-                f'text-transform:uppercase; letter-spacing:0.14em; margin-bottom:4px;">'
-                f"{label}</div>"
-                f"<div style=\"font-family:'SF Mono',Menlo,monospace; font-size:16px; "
-                f'font-weight:600; color:{color}; line-height:1;">{value}</div></div>'
+                f'<div class="kpi-mini">'
+                f'<div class="lbl">{label}</div>'
+                f'<div class="val" style="color:{color};">{value}</div>'
+                f"</div>"
             )
 
         if sharpe_v is None:
             sharpe_str, sharpe_color = "—", neutral
         else:
             sharpe_str = f"{sharpe_v:+.2f}"
-            sharpe_color = "#16a34a" if sharpe_v > 0 else ("#dc2626" if sharpe_v < 0 else "#e8e8e8")
+            sharpe_color = "#22c55e" if sharpe_v > 0 else ("#ef4444" if sharpe_v < 0 else "#f0f0f0")
         if maxdd_v is None:
             maxdd_str, maxdd_color = "—", neutral
         elif maxdd_v == 0:
             maxdd_str, maxdd_color = "0.00%", neutral
         else:
-            maxdd_str, maxdd_color = f"{maxdd_v * 100:.2f}%", "#dc2626"
+            maxdd_str, maxdd_color = f"{maxdd_v * 100:.2f}%", "#ef4444"
         if win_rate_v is None:
             wr_str, wr_color = "—", neutral
         else:
             wr_str = f"{win_rate_v:.1f}%"
-            wr_color = "#16a34a" if win_rate_v >= 33.3 else "#dc2626"
-        # Exposure: always show "X% / 100% cap" so the cap is visible context.
+            wr_color = "#22c55e" if win_rate_v >= 33.3 else "#ef4444"
+        # Exposure = market value / equity (not the same as risk caps; label clearly).
         if exposure_pct == 0:
-            exp_str, exp_color = "0% / 100% cap", neutral
+            exp_str, exp_color = f"0% · max {max_pos} pos", neutral
         else:
-            exp_str, exp_color = f"{exposure_pct:.1f}% / 100% cap", "#d97706"
+            exp_str, exp_color = f"{exposure_pct:.1f}% · max {max_pos} pos", "#ea580c"
 
         m1, m2, m3, m4 = st.columns(4)
         m1.markdown(_mini("Sharpe (ann.)", sharpe_str, sharpe_color), unsafe_allow_html=True)
         m2.markdown(_mini("Max drawdown", maxdd_str, maxdd_color), unsafe_allow_html=True)
         m3.markdown(_mini("Win rate", wr_str, wr_color), unsafe_allow_html=True)
-        m4.markdown(
-            _mini("Exposure", exp_str, exp_color),
-        )
+        m4.markdown(_mini("Exposure (notional)", exp_str, exp_color), unsafe_allow_html=True)
 
         st.write("")  # spacer
 
@@ -924,10 +1007,10 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
                 for reason, count in sorted(s["blocks_by_reason"].items(), key=lambda kv: -kv[1]):
                     st.markdown(
                         f'<div style="display:flex; justify-content:space-between; '
-                        f"padding:4px 0; font-family:'SF Mono',Menlo,monospace; "
+                        f"padding:4px 0; font-family:'JetBrains Mono',monospace; "
                         f'font-size:11px;">'
-                        f'<span style="color:#d97706;">{reason}</span>'
-                        f'<span style="color:#737373;">{count}</span></div>',
+                        f'<span style="color:#ea580c;">{reason}</span>'
+                        f'<span style="color:#6b6b6b;">{count}</span></div>',
                         unsafe_allow_html=True,
                     )
 
@@ -935,8 +1018,8 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
         last_refresh = pd.Timestamp.utcnow().strftime("%H:%M:%S UTC")
         st.markdown(
             f'<div class="footer">'
-            f"<div>PAPER TRADING // FOR TESTING ONLY // NOT FINANCIAL ADVICE</div>"
-            f"<div>Last refresh: {last_refresh}</div>"
+            f"<div>Paper execution · Testing only · Not financial advice</div>"
+            f'<div class="mono">Last refresh · {last_refresh}</div>'
             f"</div>",
             unsafe_allow_html=True,
         )
@@ -945,6 +1028,18 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
         _render_compare_tab()
 
     with st.sidebar:
+        with st.expander("Ser du inte ändringar? (felsök)", expanded=False):
+            st.markdown(
+                f"- **Build som ska synas i headern:** `{DASHBOARD_BUILD}`\n"
+                f"- **Projektrot:** `{_PROJECT_ROOT}`\n"
+                "- Kör alltid från mappen **`traderbot`**:  \n"
+                "  `cd …/traderbot && uv run streamlit run ui/dashboard.py`\n"
+                "- Stoppa gammal Streamlit (annars laddas gammal kod):  \n"
+                "  `pkill -f 'streamlit run ui/dashboard'` eller byt port:  \n"
+                "  `TRADERBOT_PORT=8502 uv run streamlit run ui/dashboard.py --server.port 8502`\n"
+                "- **Hård omladdning i webbläsaren:** Cmd+Shift+R (Mac) / Ctrl+Shift+R (Win)\n"
+                "- Rensa cache: Streamlit-menyn **⋮ → Clear cache** (om du ser den)."
+            )
         st.subheader("LIVE LOOP")
         loop_status = loop_control.status()
         if loop_status.running:
