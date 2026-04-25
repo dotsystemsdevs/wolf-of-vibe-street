@@ -28,6 +28,7 @@ from memory.decision_log import DecisionEvent
 from risk.caps import DEFAULT_KILL_SWITCH_PATH, kill_switch_active
 from signals.types import Signal
 from strategies.baseline_ema_cross import generate_signals
+from tools.notifier import NoOpNotifier, Notifier
 
 
 class LiveLoop:
@@ -44,6 +45,8 @@ class LiveLoop:
         poll_interval_s: float = 30.0,
         strategy_fn: Callable[..., list[Signal]] | None = None,
         kill_switch_path: Path = DEFAULT_KILL_SWITCH_PATH,
+        notifier: Notifier | None = None,
+        heartbeat_interval_s: float = 3600.0,
     ):
         if timeframe not in TIMEFRAME_MS:
             raise ValueError(f"Unsupported timeframe: {timeframe!r}")
@@ -57,9 +60,13 @@ class LiveLoop:
         self.poll_interval_s = poll_interval_s
         self.strategy_fn = strategy_fn or generate_signals
         self.kill_switch_path = kill_switch_path
+        self.notifier: Notifier = notifier or NoOpNotifier()
+        self.heartbeat_interval_s = heartbeat_interval_s
         self.parquet_path = bars_path(exchange, symbol, timeframe)
         self._last_processed_ts: int | None = None
         self._tf_ms = TIMEFRAME_MS[timeframe]
+        self._kill_alerted = False
+        self._last_heartbeat_ms: int | None = None
 
     def tick(self) -> int:
         """Process all newly-closed bars since last call. Returns count processed."""
@@ -104,31 +111,58 @@ class LiveLoop:
         return len(new_bars)
 
     def run(self, *, max_iterations: int | None = None) -> None:
-        """Forever loop. Honors kill switch (pauses, doesn't exit). Logs ticks."""
+        """Forever loop. Honors kill switch (pauses, doesn't exit). Logs + notifies."""
         i = 0
         while max_iterations is None or i < max_iterations:
+            now_ms = self.clock()
+
             if kill_switch_active(self.kill_switch_path):
                 self.executor.log.append(
                     DecisionEvent(
-                        timestamp_ms=self.clock(),
+                        timestamp_ms=now_ms,
                         event_type="risk_block",
                         symbol=self.symbol,
                         strategy_id=self.executor.strategy_id,
                         rationale="kill_switch_paused_loop",
                     )
                 )
+                if not self._kill_alerted:
+                    self.notifier.notify(
+                        "WARN", "Kill switch ON", f"Bot paused. Symbol: {self.symbol}."
+                    )
+                    self._kill_alerted = True
             else:
+                if self._kill_alerted:
+                    self.notifier.notify("INFO", "Kill switch OFF", "Bot resumed.")
+                    self._kill_alerted = False
                 try:
                     self.tick()
                 except Exception as e:
                     self.executor.log.append(
                         DecisionEvent(
-                            timestamp_ms=self.clock(),
+                            timestamp_ms=now_ms,
                             event_type="order_rejected",
                             symbol=self.symbol,
                             strategy_id=self.executor.strategy_id,
                             rationale=f"tick_error: {type(e).__name__}: {e}",
                         )
                     )
+                    self.notifier.notify("ERROR", "Tick failed", f"{type(e).__name__}: {e}")
+
+            if (
+                self._last_heartbeat_ms is None
+                or now_ms - self._last_heartbeat_ms >= self.heartbeat_interval_s * 1000
+            ):
+                self.notifier.notify(
+                    "INFO",
+                    "heartbeat",
+                    (
+                        f"symbol={self.symbol} tick={i} "
+                        f"last_processed_ts={self._last_processed_ts} "
+                        f"cash=${self.executor.cash:,.2f}"
+                    ),
+                )
+                self._last_heartbeat_ms = now_ms
+
             time.sleep(self.poll_interval_s)
             i += 1

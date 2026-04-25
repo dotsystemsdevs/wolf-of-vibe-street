@@ -46,10 +46,10 @@ Goal: end-to-end pipeline running paper trades on one symbol with one trivial ru
   - [x] Output: Sharpe, Sortino, max DD, BE_WR check (S-50). *(in `backtest/metrics.py`; per-symbol attribution trivial for Phase 1 since BTC-only — generalize when Phase 2 adds ETH/SOL.)*
 - [x] **Decision log:**
   - [x] Append-only SQLite table. Every signal + order + fill writes a row with full rationale. *(`memory/decision_log.py`; UPDATE/DELETE blocked by triggers; metadata is JSON-serialized; lives in `data/decision_log/`.)*
-- [ ] **Monitor:**
-  - [ ] Heartbeat from each worker.
-  - [ ] WS-disconnect detection → pause new orders.
-  - [ ] Telegram bot for alerts.
+- [x] **Monitor:**
+  - [x] Heartbeat from each worker. *(LiveLoop emits hourly heartbeat with cash + tick + last_processed_ts.)*
+  - [ ] WS-disconnect detection → pause new orders. *(Replaced by REST polling; transient API errors are caught + notified, do not kill the loop.)*
+  - [x] Telegram bot for alerts. *(`tools/notifier.py`. Edge-triggered on kill switch, fires on tick errors, hourly heartbeat. Silent no-op if creds missing.)*
 - [x] **Dashboard:**
   - [x] Streamlit page: positions, P&L, recent signals, recent decisions, kill-switch status. *(`ui/dashboard.py` reads SQLite log; `ui/views.py` is the testable summary layer. Run with `uv run streamlit run ui/dashboard.py`. Known gross-vs-net P&L gap noted in `@architecture.md`.)*
 - [ ] **Mac Mini 24/7 prep** (D-18) — before starting soak: `sudo pmset -a sleep 0 disksleep 0 powernap 0 autorestart 1 womp 1`, disable display sleep in Settings, ensure Tailscale (D-17) reachable, verify auto-login or `caffeinate` wrapper for the executor process.

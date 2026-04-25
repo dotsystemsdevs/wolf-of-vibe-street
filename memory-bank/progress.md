@@ -5,6 +5,45 @@
 
 ---
 
+## 2026-04-25 (session 16) — Telegram notifier + LiveLoop alerts
+
+- `tools/notifier.py` — `Notifier` Protocol, `TelegramNotifier`, `NoOpNotifier`. Telegram reads `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` from env; silent no-op if either is missing so dev/CI just works. HTTP errors are caught via an `on_error` callback so a Telegram outage cannot crash the bot.
+- `LiveLoop` accepts `notifier=` and `heartbeat_interval_s=` (default 3600). `run()` notifies on three signals:
+  - **Kill switch state change** — edge-triggered ("Kill switch ON" once when activated, "Kill switch OFF" once when cleared). No spam if it stays in either state.
+  - **Tick error** — caught exception is logged AND notified with type + message.
+  - **Heartbeat** — first iteration always fires; thereafter every `heartbeat_interval_s`.
+- 8 new tests (5 notifier behavior, 3 LiveLoop alerts). 139/139 total. Ruff clean.
+
+**Phase 1 Monitor checkbox is now done.** All Phase 1 architectural work is complete:
+
+```
+data layer       ✓
+features         ✓
+strategy         ✓
+risk/sizing      ✓
+risk/caps        ✓
+backtest         ✓
+executor         ✓
+decision log     ✓
+live loop        ✓
+dashboard        ✓
+monitor (alerts) ✓
+```
+
+Only remaining items are operational:
+- Mac Mini 24/7 prep (`pmset` + `caffeinate` + `launchd`).
+- User creates a Telegram bot via @BotFather + sets env vars.
+- User chooses initial cash, strategy params, etc.
+- Then start the actual 7-day soak.
+
+**Next:** Either (a) ops runbook for starting the soak (the 24/7 config + launchd plist + how to make a Telegram bot), or (b) a thin `python -m workers.live_loop` CLI entry that reads env config, instantiates everything, and runs. (b) is needed before the soak can be a one-liner.
+
+**Blockers:** none.
+
+**New lessons:** none.
+
+---
+
 ## 2026-04-25 (session 15) — Streamlit dashboard
 
 - `uv add streamlit` (1.56.0).
