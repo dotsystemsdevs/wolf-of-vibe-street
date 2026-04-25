@@ -130,24 +130,11 @@ header[data-testid="stHeader"] { background: transparent; }
 .kpi.pos .delta { color: var(--green); }
 .kpi.neg .delta { color: var(--red); }
 
-/* --- Panels --- */
-.panel {
+/* --- Panels: Streamlit native st.container(border=True) — colorize to match --- */
+[data-testid="stVerticalBlockBorderWrapper"] {
   background: var(--card);
-  border: 1px solid var(--border);
-  margin-top: 10px;
-}
-.panel-title {
-  font-family: "Inter", sans-serif;
-  font-size: 9px; color: var(--text-2);
-  text-transform: uppercase; letter-spacing: 0.16em;
-  font-weight: 600;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--border);
-  display: flex; justify-content: space-between; align-items: center;
-}
-.panel-title .right {
-  color: var(--text-3); font-weight: 400; letter-spacing: 0.04em;
-  font-family: "SF Mono", Menlo, monospace; font-size: 10px;
+  border: 1px solid var(--border) !important;
+  border-radius: 0 !important;
 }
 
 /* --- Action tags --- */
@@ -682,21 +669,19 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
 
     st.markdown(
         f'<div style="display:flex; justify-content:space-between; align-items:center; '
-        f'padding-bottom:10px; border-bottom:1px solid #1f1f1f; margin-bottom:10px;">'
+        f"padding-bottom:10px; border-bottom:1px solid #1f1f1f; margin-bottom:14px; "
+        f'flex-wrap:wrap; gap:10px;">'
         f'<div class="brand">WOLF OF VIBE STREET'
         f'<span class="sub">DASHBOARD</span>'
         f'<span class="mode {mode_cls}">{mode_text}</span></div>'
-        f'<div class="status">'
-        f'<span style="color:#737373;">MONITORING</span> '
-        f'<span class="v">{symbol_env} · {timeframe}</span>'
-        f'<span style="margin:0 10px; color:#3a3a3a;">|</span>'
-        f'<span style="color:#737373;">NEXT BAR</span> '
-        f'<span class="v">{next_bar_str}</span>'
-        f'<span style="margin:0 10px; color:#3a3a3a;">|</span>'
+        f'<div class="status" style="display:flex; gap:14px; flex-wrap:wrap;">'
+        f'<span><span style="color:#737373;">SYMBOL</span> '
+        f'<span class="v">{symbol_env} · {timeframe}</span></span>'
+        f'<span><span style="color:#737373;">NEXT BAR</span> '
+        f'<span class="v">{next_bar_str}</span></span>'
         f'<span class="v">{now_utc_str}</span>'
-        f'<span style="margin:0 10px; color:#3a3a3a;">|</span>'
-        f'<span style="color:#737373;">STATUS</span> '
-        f'<span class="v {status_cls}">{status_v}</span>'
+        f'<span><span style="color:#737373;">STATUS</span> '
+        f'<span class="v {status_cls}">{status_v}</span></span>'
         f"</div></div>",
         unsafe_allow_html=True,
     )
@@ -884,68 +869,75 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
 
         st.write("")  # spacer
 
-        # --- Row 1: Equity curve (left, 2x) + Open positions (right, 1x) ---
-        left, right = st.columns([2, 1])
-        with left:
-            total_pct = total_return * 100
+        # Native st.container(border=True) properly contains its children — unlike
+        # `<div class="panel">` markdown wrappers, which Streamlit components escape
+        # (causing chart + tabs to render outside the visible panel border).
+        def _panel_header(title: str, right: str = "") -> None:
+            right_html = (
+                f"<span style=\"color:#737373; font-family:'SF Mono',monospace; "
+                f'font-size:10px; letter-spacing:0.04em;">{right}</span>'
+                if right
+                else ""
+            )
             st.markdown(
-                f'<div class="panel"><div class="panel-title">Equity curve'
-                f'<span class="right">{total_pct:+.2f}% total</span></div>',
+                f'<div style="display:flex; justify-content:space-between; '
+                f"align-items:center; font-family:Inter,sans-serif; font-size:9px; "
+                f"color:#a3a3a3; text-transform:uppercase; letter-spacing:0.16em; "
+                f"font-weight:600; margin-bottom:8px; padding-bottom:6px; "
+                f'border-bottom:1px solid #1f1f1f;">'
+                f"<span>{title}</span>{right_html}</div>",
                 unsafe_allow_html=True,
             )
+
+        # --- Row 1: Equity curve (left, 2x) + Open positions (right, 1x) ---
+        left, right = st.columns([2, 1])
+        with left, st.container(border=True):
+            _panel_header("Equity curve", f"{total_return * 100:+.2f}% total")
             st.plotly_chart(
                 _equity_chart(eq_df, initial_cash, rows=rows),
                 config={"displayModeBar": False},
                 width="stretch",
             )
-            st.markdown("</div>", unsafe_allow_html=True)
 
-        with right:
-            st.markdown(
-                f'<div class="panel"><div class="panel-title">Open positions'
-                f'<span class="right">{len(positions)} / {max_pos}</span></div>'
-                f'<div class="body">{_positions_html(positions)}</div></div>',
-                unsafe_allow_html=True,
-            )
+        with right, st.container(border=True):
+            _panel_header("Open positions", f"{len(positions)} / {max_pos}")
+            st.markdown(_positions_html(positions), unsafe_allow_html=True)
 
-        # --- Row 2: Trade history (left, 2x) + Live log (right, 1x) ---
+        # --- Row 2: Trade history (left, 2x) + Activity feed (right, 1x) ---
         left2, right2 = st.columns([2, 1])
-        with left2:
-            st.markdown(
-                f'<div class="panel"><div class="panel-title">Trade history'
-                f'<span class="right">last 25</span></div>'
-                f'<div class="body">{_trades_table_html(trades_dataframe(rows))}</div></div>',
-                unsafe_allow_html=True,
-            )
+        with left2, st.container(border=True):
+            _panel_header("Trade history", "last 25")
+            st.markdown(_trades_table_html(trades_dataframe(rows)), unsafe_allow_html=True)
 
         with right2:
-            # One panel, two tabs — eliminates "which log is the real one?" confusion.
-            st.markdown(
-                '<div class="panel"><div class="panel-title">Activity feed'
-                '<span class="right">decisions = strategy + risk · stdout = process</span>'
-                "</div>",
-                unsafe_allow_html=True,
-            )
-            tab_dec, tab_stdout = st.tabs(["DECISIONS", "LOOP STDOUT"])
-            with tab_dec:
-                st.markdown(_live_log_html(rows, n=80), unsafe_allow_html=True)
-            with tab_stdout:
-                loop_log_text = loop_control.tail_log(lines=80) or (
-                    "(no loop log yet — start the loop from the sidebar)"
+            with st.container(border=True):
+                _panel_header(
+                    "Activity feed",
+                    "decisions = strategy+risk · stdout = process",
                 )
-                st.code(loop_log_text, language="bash")
-            st.markdown("</div>", unsafe_allow_html=True)
+                tab_dec, tab_stdout = st.tabs(["DECISIONS", "LOOP STDOUT"])
+                with tab_dec:
+                    st.markdown(_live_log_html(rows, n=80), unsafe_allow_html=True)
+                with tab_stdout:
+                    loop_log_text = loop_control.tail_log(lines=80) or (
+                        "(no loop log yet — start the loop from the sidebar)"
+                    )
+                    st.code(loop_log_text, language="bash")
 
             if s["blocks_by_reason"]:
-                st.markdown('<div class="section-title">Risk blocks</div>', unsafe_allow_html=True)
-                for reason, count in sorted(s["blocks_by_reason"].items(), key=lambda kv: -kv[1]):
-                    st.markdown(
-                        f'<div style="display:flex; justify-content:space-between; '
-                        f'padding:4px 0; font-size:12px;">'
-                        f'<span style="color:#fbbf24;">{reason}</span>'
-                        f'<span style="color:#9ca3af;">{count}</span></div>',
-                        unsafe_allow_html=True,
-                    )
+                with st.container(border=True):
+                    _panel_header("Risk blocks")
+                    for reason, count in sorted(
+                        s["blocks_by_reason"].items(), key=lambda kv: -kv[1]
+                    ):
+                        st.markdown(
+                            f'<div style="display:flex; justify-content:space-between; '
+                            f"padding:4px 0; font-family:'SF Mono',Menlo,monospace; "
+                            f'font-size:11px;">'
+                            f'<span style="color:#d97706;">{reason}</span>'
+                            f'<span style="color:#737373;">{count}</span></div>',
+                            unsafe_allow_html=True,
+                        )
 
         # --- Footer disclaimer ---
         last_refresh = pd.Timestamp.utcnow().strftime("%H:%M:%S UTC")
