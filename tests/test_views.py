@@ -125,3 +125,65 @@ def test_fills_dataframe_empty_input() -> None:
     df = fills_dataframe([])
     assert df.empty
     assert "side" in df.columns
+
+
+# --- equity_curve ---
+
+
+def test_equity_curve_walks_buy_then_sell() -> None:
+    """$10k start, buy 10@100 ($1000 spent), sell 10@110 (+$100). Equity: 10k → 10k → 10.1k."""
+    from ui.views import equity_curve
+
+    rows = [
+        _row(event_type="order_filled", side="buy", price=100.0, quantity=10.0, ts=1000),
+        _row(
+            event_type="order_filled",
+            side="sell",
+            price=110.0,
+            quantity=10.0,
+            ts=2000,
+            rationale="target_hit",
+        ),
+    ]
+    eq = equity_curve(rows, initial_cash=10_000.0)
+    assert len(eq) == 3
+    assert eq.iloc[0]["equity"] == pytest.approx(10_000.0)
+    # After buy: cash = 9000, position = 10*100 = 1000, equity = 10000
+    assert eq.iloc[1]["equity"] == pytest.approx(10_000.0)
+    assert eq.iloc[1]["cash"] == pytest.approx(9_000.0)
+    # After sell: cash = 9000 + 1100 = 10100, position = 0, equity = 10100
+    assert eq.iloc[2]["equity"] == pytest.approx(10_100.0)
+    assert eq.iloc[2]["cash"] == pytest.approx(10_100.0)
+
+
+def test_equity_curve_empty_log_returns_empty() -> None:
+    from ui.views import equity_curve
+
+    df = equity_curve([], initial_cash=10_000.0)
+    assert df.empty
+
+
+# --- open_positions ---
+
+
+def test_open_positions_reflects_unclosed_buys() -> None:
+    from ui.views import open_positions
+
+    rows = [
+        _row(event_type="order_filled", side="buy", price=100.0, quantity=2.0, ts=1000),
+    ]
+    pos = open_positions(rows)
+    assert len(pos) == 1
+    assert pos[0]["symbol"] == "BTC/USDT"
+    assert pos[0]["qty"] == 2.0
+    assert pos[0]["avg_entry"] == 100.0
+
+
+def test_open_positions_empty_after_full_close() -> None:
+    from ui.views import open_positions
+
+    rows = [
+        _row(event_type="order_filled", side="buy", price=100.0, quantity=2.0, ts=1000),
+        _row(event_type="order_filled", side="sell", price=110.0, quantity=2.0, ts=2000),
+    ]
+    assert open_positions(rows) == []

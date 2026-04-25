@@ -75,6 +75,98 @@ def trades_dataframe(rows: list[dict[str, Any]]) -> pd.DataFrame:
     )
 
 
+def equity_curve(rows: list[dict[str, Any]], initial_cash: float) -> pd.DataFrame:
+    """Walk fills accumulating cash + open position; return equity at each fill timestamp.
+
+    Long-only, single-position assumption (Phase 1). Equity = cash + open_qty * last_price.
+    Includes a synthetic starting point at the first fill timestamp - 1 ms with cash=initial.
+    """
+    fills = sorted(
+        (r for r in rows if r["event_type"] == "order_filled"),
+        key=lambda r: (r["timestamp_ms"], r["id"]),
+    )
+    if not fills:
+        return pd.DataFrame(columns=["timestamp_ms", "cash", "position_value", "equity"])
+
+    cash = float(initial_cash)
+    qty = 0.0
+    avg_entry = 0.0
+    last_price = 0.0
+    points: list[dict[str, float]] = [
+        {
+            "timestamp_ms": int(fills[0]["timestamp_ms"]) - 1,
+            "cash": cash,
+            "position_value": 0.0,
+            "equity": cash,
+        }
+    ]
+    for f in fills:
+        price = float(f["price"])
+        fill_qty = float(f["quantity"])
+        last_price = price
+        if f["side"] == "buy":
+            cost = price * fill_qty
+            cash -= cost
+            new_qty = qty + fill_qty
+            avg_entry = (avg_entry * qty + price * fill_qty) / new_qty if new_qty > 0 else price
+            qty = new_qty
+        else:
+            cash += price * fill_qty
+            qty -= fill_qty
+            if qty <= 0:
+                qty = 0.0
+                avg_entry = 0.0
+        position_value = qty * last_price
+        points.append(
+            {
+                "timestamp_ms": int(f["timestamp_ms"]),
+                "cash": cash,
+                "position_value": position_value,
+                "equity": cash + position_value,
+            }
+        )
+    return pd.DataFrame(points)
+
+
+def open_positions(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Reconstruct currently-open positions by walking fills."""
+    fills = sorted(
+        (r for r in rows if r["event_type"] == "order_filled"),
+        key=lambda r: (r["timestamp_ms"], r["id"]),
+    )
+    pos: dict[str, dict[str, float]] = {}
+    for f in fills:
+        sym = f["symbol"]
+        price = float(f["price"])
+        fill_qty = float(f["quantity"])
+        cur = pos.get(sym, {"qty": 0.0, "avg_entry": 0.0, "last_price": 0.0})
+        cur["last_price"] = price
+        if f["side"] == "buy":
+            new_qty = cur["qty"] + fill_qty
+            cur["avg_entry"] = (
+                (cur["avg_entry"] * cur["qty"] + price * fill_qty) / new_qty
+                if new_qty > 0
+                else price
+            )
+            cur["qty"] = new_qty
+        else:
+            cur["qty"] -= fill_qty
+            if cur["qty"] <= 1e-9:
+                cur = {"qty": 0.0, "avg_entry": 0.0, "last_price": price}
+        pos[sym] = cur
+    return [
+        {
+            "symbol": sym,
+            "qty": p["qty"],
+            "avg_entry": p["avg_entry"],
+            "last_price": p["last_price"],
+            "unrealized_pnl": (p["last_price"] - p["avg_entry"]) * p["qty"],
+        }
+        for sym, p in pos.items()
+        if p["qty"] > 0
+    ]
+
+
 def summary(rows: list[dict[str, Any]], initial_cash: float) -> dict[str, Any]:
     """High-level snapshot: trade count, win rate, realized P&L, current cash."""
     trades = trades_dataframe(rows)

@@ -5,6 +5,27 @@
 
 ---
 
+## 2026-04-25 (session 20) — Dashboard: rich dark-themed rebuild
+
+User said the previous dashboard looked "missig" / too plain and shared 6 reference screenshots (TRADING/BOT-style with KPI cards + equity curve + positions panel + live log). Rebuilt to match that aesthetic.
+
+- `uv add plotly`. Plotly's dark theme + interactive hover beats Streamlit's native charts for trading visuals.
+- `.streamlit/config.toml` — dark base theme, gold accent, monospace font, neutral grays.
+- `ui/views.py` — added `equity_curve(rows, initial_cash)` (walks fills, returns DataFrame[ts, cash, position_value, equity]) and `open_positions(rows)` (reconstructs unclosed buys with avg-entry + last_price + uPnL). Both pure, both tested. 4 new tests; 155/155 total.
+- `ui/dashboard.py` — full rewrite. Hand-rolled HTML tables for trade history + positions + live log (Streamlit's built-in DataFrame is too plain for this look). 5 KPI cards at top (Equity, Cash, Realized P&L, Trades, Open positions). Plotly equity curve with step-line + dotted starting-equity reference line. Color-coded badges for STOP/TGT/EXIT. Live log color-codes BUY (green) / SELL (red) / BLOCK (yellow) / SIG (blue). Sidebar holds the kill switch + event-count breakdown.
+
+Verified against the existing 30-day BTC log (777 rows, 38 fills, 19 trades): equity curve goes 10000 → 9975 with min 9736, max 10092. Realistic-looking step curve.
+
+**Dashboard is now ~80% of the look from the TRADING/BOT reference screenshot.** The remaining 20% (animated transitions, native window chrome, custom font face) needs a proper React + FastAPI rewrite — out of scope for Phase 1.
+
+**Next:** Either (a) start the actual paper-soak now that the dashboard is presentable, or (b) keep building Phase 2 (ML model, regime classifier).
+
+**Blockers:** none.
+
+**New lessons:** none.
+
+---
+
 ## 2026-04-25 (session 19) — Phase 2 begins: LLM evaluator (S-33)
 
 First AI layer on top of the baseline. The cheap rule strategy keeps generating candidates; an evaluator now decides which ones to actually take.
