@@ -22,7 +22,9 @@ import streamlit as st  # noqa: E402
 import streamlit.components.v1 as components  # noqa: E402
 
 from backtest.compare import (  # noqa: E402
+    DEFAULT_STRATEGY,
     DEFAULT_SYMBOLS,
+    STRATEGIES,
     make_figure,
     rank_by_expectancy,
     run_comparison,
@@ -44,7 +46,7 @@ from ui.views import (  # noqa: E402
 DEFAULT_DB_PATH = Path("data/decision_log/traderbot.db")
 REFRESH_INTERVAL_S = 30
 # Bump when UI changes — if you do not see this in the header, you are not running this file.
-DASHBOARD_BUILD = "2026-04-26g"
+DASHBOARD_BUILD = "2026-04-26h"
 
 GREEN = "#22c55e"
 RED = "#ef4444"
@@ -507,14 +509,22 @@ div[data-baseweb="tab-highlight"] { background: var(--accent) !important; }
 
 
 @st.cache_data(ttl=86_400, show_spinner=False)
-def _cached_symbol_ranking(symbols_key: tuple[str, ...], days: int, timeframe: str) -> list[dict]:
-    """24-hour cached symbol-expectancy ranking.
+def _cached_symbol_ranking(
+    symbols_key: tuple[str, ...],
+    days: int,
+    timeframe: str,
+    strategy_label: str,
+) -> list[dict]:
+    """24-hour cached symbol-expectancy ranking, keyed on strategy as well.
 
-    Re-runs `rank_by_expectancy(run_comparison(...))` but returns plain dicts so the
-    Streamlit cache can serialize them. Cache invalidates on any (symbols, days,
-    timeframe) change, or via the panel's "Refresh" button (clears st.cache_data).
+    Returns plain dicts so the Streamlit cache can serialize them. Cache
+    invalidates on any (symbols, days, timeframe, strategy) change, or via
+    the panel's "Refresh" button (clears st.cache_data).
     """
-    results = run_comparison(list(symbols_key), days=days, timeframe=timeframe)
+    fn = STRATEGIES.get(strategy_label, STRATEGIES[DEFAULT_STRATEGY])
+    results = run_comparison(
+        list(symbols_key), days=days, timeframe=timeframe, strategy_fn=fn
+    )
     ranked = rank_by_expectancy(results)
     return [
         {
@@ -795,13 +805,13 @@ def _live_log_html(rows: list[dict], n: int = 30) -> str:
 def _render_compare_tab() -> None:
     """Backtest comparison — runs `backtest.compare` in-process and shows the chart."""
     st.markdown(
-        '<div class="muted" style="margin-bottom:8px;">Run the baseline EMA-cross strategy '
-        "across multiple symbols and compare equity curves vs buy-and-hold. "
+        '<div class="muted" style="margin-bottom:8px;">Run a strategy across '
+        "multiple symbols and compare equity curves vs buy-and-hold. "
         "Backfills are reused if the local parquet already covers the window.</div>",
         unsafe_allow_html=True,
     )
 
-    c1, c2, c3 = st.columns([3, 1, 1])
+    c1, c2, c3, c4 = st.columns([3, 1, 1, 2])
     symbols_str = c1.text_input(
         "Symbols (comma-separated)",
         ", ".join(DEFAULT_SYMBOLS),
@@ -809,19 +819,33 @@ def _render_compare_tab() -> None:
     )
     days = c2.number_input("Days", min_value=7, max_value=180, value=30, step=1, key="compare_days")
     timeframe = c3.selectbox("Timeframe", ["1h", "4h", "1d"], index=0, key="compare_tf")
+    strategy_label = c4.selectbox(
+        "Strategy",
+        list(STRATEGIES.keys()),
+        index=0,
+        key="compare_strategy",
+    )
 
     if st.button("Run comparison", type="primary"):
         symbols = [s.strip() for s in symbols_str.split(",") if s.strip()]
         if not symbols:
             st.error("Need at least one symbol.")
             return
-        with st.spinner(f"Backfilling + backtesting {len(symbols)} symbols..."):
+        with st.spinner(
+            f"Backfilling + backtesting {len(symbols)} symbols on {strategy_label}..."
+        ):
             try:
-                results = run_comparison(symbols, days=int(days), timeframe=timeframe)
+                results = run_comparison(
+                    symbols,
+                    days=int(days),
+                    timeframe=timeframe,
+                    strategy_fn=STRATEGIES[strategy_label],
+                )
             except Exception as e:
                 st.error(f"Comparison failed: {type(e).__name__}: {e}")
                 return
         st.session_state["compare_results"] = results
+        st.session_state["compare_results_strategy"] = strategy_label
 
     results = st.session_state.get("compare_results")
     if results is None:
@@ -830,7 +854,11 @@ def _render_compare_tab() -> None:
 
     st.plotly_chart(make_figure(results), config={"displayModeBar": False}, width="stretch")
 
-    st.markdown('<div class="section-title">Per-symbol breakdown</div>', unsafe_allow_html=True)
+    shown_strategy = st.session_state.get("compare_results_strategy", "Baseline EMA-cross")
+    st.markdown(
+        f'<div class="section-title">Per-symbol breakdown · {shown_strategy}</div>',
+        unsafe_allow_html=True,
+    )
     # Use the desk's .t table class — same JetBrains Mono / Oswald look as
     # Trade history. Strategy + Diff get pos/neg color (real outcome). Sharpe,
     # MaxDD, B&H are *measurements*, not outcomes — kept neutral per color rule.
@@ -1223,14 +1251,30 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
                         unsafe_allow_html=True,
                     )
 
-        # --- Row 3: Symbol expectancy ranker (cached 24h) ---
+        # --- Row 3: Symbol expectancy ranker (cached 24h, per strategy) ---
         # Decision support: shows whether the symbol the bot is trading right now
-        # actually has the best edge among the watchlist. Backtests are heavy so
-        # the cache is per-day; refresh button below clears it on demand.
-        _section("Symbol expectancy", f"30d backtest · {timeframe} bars · cached 24h")
+        # actually has the best edge among the watchlist. Strategy toggle lets
+        # you A/B baseline EMA-cross vs mean-reversion RSI on the same data.
+        # Backtests are heavy so the cache is per-day per-strategy; refresh
+        # button below clears it on demand.
+        strategy_label = st.session_state.get("expectancy_strategy", DEFAULT_STRATEGY)
+        _section(
+            "Symbol expectancy",
+            f"{strategy_label} · 30d backtest · {timeframe} bars",
+        )
+        ctl_left, ctl_right = st.columns([2, 3])
+        chosen = ctl_left.selectbox(
+            "Strategy",
+            list(STRATEGIES.keys()),
+            index=list(STRATEGIES.keys()).index(strategy_label),
+            key="expectancy_strategy",
+            label_visibility="collapsed",
+        )
         live_symbol = symbol_env
         try:
-            ranked = _cached_symbol_ranking(DEFAULT_SYMBOLS, days=30, timeframe=timeframe)
+            ranked = _cached_symbol_ranking(
+                DEFAULT_SYMBOLS, days=30, timeframe=timeframe, strategy_label=chosen
+            )
         except Exception as e:  # noqa: BLE001
             ranked = []
             st.markdown(
@@ -1278,30 +1322,57 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
                 unsafe_allow_html=True,
             )
 
-            # Hint if the bot's current symbol isn't the top-ranked one.
+            # Decision support — three cases, only the first one is "switch symbol":
+            #   1. The top symbol is profitable AND beats the live symbol → suggest switch.
+            #   2. ALL symbols negative → it's a strategy problem, not a symbol problem.
+            #   3. Live symbol is already #1 → say nothing (no nag).
             top = ranked[0]
-            if top["symbol"] != live_symbol and top["metrics"].get("num_trades", 0) > 0:
-                live_row = next(
-                    (r for r in ranked if r["symbol"] == live_symbol),
-                    None,
+            top_exp = float(top["metrics"].get("expectancy", 0.0))
+            top_n = int(top["metrics"].get("num_trades", 0))
+            all_negative = all(
+                float(r["metrics"].get("expectancy", 0.0)) <= 0
+                for r in ranked
+                if int(r["metrics"].get("num_trades", 0)) > 0
+            )
+            live_row = next(
+                (r for r in ranked if r["symbol"] == live_symbol),
+                None,
+            )
+
+            hint_html: str | None = None
+            if all_negative and top_n > 0:
+                hint_html = (
+                    f'<span style="color:var(--red); font-weight:700;">STRATEGY ALERT</span> '
+                    f"All {len(ranked)} watchlist symbols have negative expectancy on "
+                    f"<strong>{chosen}</strong> over the last 30d. Switching symbol won't "
+                    f"fix this — try the other strategy in the dropdown above, "
+                    f"or enable the LLM filter."
                 )
-                if live_row is not None:
-                    delta_exp = top["metrics"]["expectancy"] - live_row["metrics"]["expectancy"]
-                    if delta_exp > 0:
-                        st.markdown(
-                            f'<div style="margin-top:10px; padding:8px 12px; '
-                            f"background:rgba(251,191,36,0.06); border-left:2px solid "
-                            f"var(--accent); font-family:JetBrains Mono,monospace; "
-                            f'font-size:11px; color:var(--text-2);">'
-                            f'<span style="color:var(--accent); font-weight:700;">HINT</span> '
-                            f'<strong>{top["symbol"]}</strong> has '
-                            f"${delta_exp:+.2f}/trade higher expectancy than "
-                            f"<strong>{live_symbol}</strong> over the last 30d. "
-                            f"Switch via <code>TRADERBOT_SYMBOL</code> in <code>.env</code> "
-                            f"and restart the loop."
-                            f"</div>",
-                            unsafe_allow_html=True,
-                        )
+            elif (
+                top["symbol"] != live_symbol
+                and top_n > 0
+                and top_exp > 0
+                and live_row is not None
+            ):
+                delta_exp = top_exp - float(live_row["metrics"].get("expectancy", 0.0))
+                if delta_exp > 0:
+                    hint_html = (
+                        f'<span style="color:var(--accent); font-weight:700;">HINT</span> '
+                        f'<strong>{top["symbol"]}</strong> has '
+                        f"${delta_exp:+.2f}/trade higher expectancy than "
+                        f"<strong>{live_symbol}</strong> over the last 30d. "
+                        f"Switch via <code>TRADERBOT_SYMBOL</code> in <code>.env</code> "
+                        f"and restart the loop."
+                    )
+
+            if hint_html:
+                st.markdown(
+                    f'<div style="margin-top:10px; padding:8px 12px; '
+                    f"background:rgba(251,191,36,0.06); border-left:2px solid "
+                    f"var(--accent); font-family:JetBrains Mono,monospace; "
+                    f'font-size:11px; color:var(--text-2);">{hint_html}</div>',
+                    unsafe_allow_html=True,
+                )
 
             cols = st.columns([1, 4])
             if cols[0].button("Refresh ranking", width="stretch"):

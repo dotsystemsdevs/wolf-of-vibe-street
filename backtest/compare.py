@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import os
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -22,12 +23,27 @@ from backtest.engine import BacktestConfig, BacktestResult, run_backtest
 from data.backfill import backfill_ohlcv
 from data.store import bars_path, load_bars, save_bars
 from features.compute import bars_to_df
-from strategies.baseline_ema_cross import generate_signals
+from signals.types import Signal
+from strategies.baseline_ema_cross import generate_signals as baseline_signals
+from strategies.mean_reversion_rsi import generate_signals as mean_rev_signals
 
 DEFAULT_SYMBOLS = ("BTC/USDT", "ETH/USDT", "SOL/USDT")
 DEFAULT_TIMEFRAME = "1h"
 DEFAULT_DAYS = 30
 INITIAL_CASH = 10_000.0
+
+# Strategy registry — single source of truth for "which strategies can the
+# dashboard show in the dropdown". Add a new strategy here and it surfaces
+# everywhere automatically. Keys are user-facing labels.
+StrategyFn = Callable[..., list[Signal]]
+STRATEGIES: dict[str, StrategyFn] = {
+    "Baseline EMA-cross": baseline_signals,
+    "Mean-reversion RSI": mean_rev_signals,
+}
+DEFAULT_STRATEGY = "Baseline EMA-cross"
+
+# Back-compat alias — older callers (and the CLI main) still import `generate_signals`.
+generate_signals = baseline_signals
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,8 +76,16 @@ def ensure_backfill(
     return bars_to_df(bars)
 
 
-def run_one(symbol: str, df: pd.DataFrame, config: BacktestConfig) -> SymbolResult:
-    sigs = generate_signals(df, symbol=symbol)
+def run_one(
+    symbol: str,
+    df: pd.DataFrame,
+    config: BacktestConfig,
+    *,
+    strategy_fn: StrategyFn | None = None,
+) -> SymbolResult:
+    """Backtest a single symbol with the given strategy (defaults to baseline)."""
+    fn = strategy_fn or baseline_signals
+    sigs = fn(df, symbol=symbol)
     res = run_backtest(df, sigs, config)
     first = float(df["close"].iloc[0])
     last = float(df["close"].iloc[-1])
@@ -139,15 +163,20 @@ def run_comparison(
     days: int,
     timeframe: str = "1h",
     config: BacktestConfig | None = None,
+    strategy_fn: StrategyFn | None = None,
 ) -> list[SymbolResult]:
-    """One-shot helper for callers (e.g. the dashboard) that want a fresh comparison."""
+    """One-shot helper for callers (e.g. the dashboard) that want a fresh comparison.
+
+    `strategy_fn` defaults to the baseline EMA-cross. Pass any signal generator
+    matching `(df, *, symbol) -> list[Signal]` to backtest a different strategy.
+    """
     cfg = config or BacktestConfig(initial_cash=INITIAL_CASH)
     now_ms = int(time.time() * 1000)
     since_ms = now_ms - days * 24 * 3600 * 1000
     out: list[SymbolResult] = []
     for sym in symbols:
         df = ensure_backfill(sym, timeframe, since_ms)
-        out.append(run_one(sym, df, cfg))
+        out.append(run_one(sym, df, cfg, strategy_fn=strategy_fn))
     return out
 
 
