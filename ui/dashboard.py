@@ -47,7 +47,7 @@ from ui.views import (  # noqa: E402
 DEFAULT_DB_PATH = Path("data/decision_log/traderbot.db")
 REFRESH_INTERVAL_S = 30
 # Bump when UI changes — if you do not see this in the header, you are not running this file.
-DASHBOARD_BUILD = "2026-04-26n"
+DASHBOARD_BUILD = "2026-04-26o"
 
 GREEN = "#22c55e"
 RED = "#ef4444"
@@ -733,16 +733,32 @@ def _go_live_readiness(
         }
     )
 
+    try:
+        from tools.system_check import check_readiness as _mac_check  # noqa: PLC0415
+
+        mac_report = _mac_check()
+        if not mac_report.is_macos or not mac_report.pmset_available:
+            mac_status = "todo"
+            mac_detail = mac_report.summary
+        elif mac_report.is_clean:
+            mac_status = "done"
+            settings_str = ", ".join(f"{c.name}={c.actual}" for c in mac_report.checks)
+            mac_detail = f"All 5 settings correct: {settings_str}."
+        else:
+            mac_status = "todo"
+            failing = ", ".join(
+                f"{c.name}={c.actual}→{c.expected}" for c in mac_report.checks if not c.passed
+            )
+            mac_detail = f"{failing}. Run: <code>{mac_report.remediation}</code>"
+    except Exception as e:  # noqa: BLE001
+        mac_status = "todo"
+        mac_detail = f"check failed: {type(e).__name__}: {e}"
     checks.append(
         {
             "key": "mac_mini",
-            "name": "Mac Mini 24/7 prep (pmset, auto-start)",
-            "status": "todo",
-            "detail": (
-                "Manual setup: `sudo pmset -a sleep 0 disksleep 0 powernap 0 "
-                "autorestart 1 womp 1`, disable display sleep, optionally a "
-                "launchd plist for auto-start on reboot."
-            ),
+            "name": "Mac Mini 24/7 prep (pmset settings)",
+            "status": mac_status,
+            "detail": mac_detail,
         }
     )
 
