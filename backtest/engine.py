@@ -184,6 +184,17 @@ def run_backtest(
     equity = pd.Series(equity_history, index=df["timestamp_ms"], name="equity")
     rets = equity_returns(equity)
     pnls = [t.pnl for t in trades]
+    wins_pnl = [p for p in pnls if p > 0]
+    losses_pnl = [p for p in pnls if p < 0]
+    # Expectancy = average $ result per trade. Drives the symbol-ranking panel:
+    # positive expectancy means the strategy is net profitable on this symbol over
+    # this window, even after costs. Negative expectancy → blacklist candidate.
+    expectancy = (sum(pnls) / len(pnls)) if pnls else 0.0
+    avg_win = (sum(wins_pnl) / len(wins_pnl)) if wins_pnl else 0.0
+    avg_loss = (sum(losses_pnl) / len(losses_pnl)) if losses_pnl else 0.0
+    # Profit factor = gross wins / gross losses. > 1 ⇒ the strategy makes money;
+    # rule of thumb: > 1.5 is "tradable", < 1.0 is "stop trading this".
+    profit_factor = (sum(wins_pnl) / abs(sum(losses_pnl))) if losses_pnl else float("inf")
     metrics = {
         "num_trades": float(len(trades)),
         "total_return_pct": float(equity.iloc[-1] / config.initial_cash - 1.0),
@@ -193,5 +204,9 @@ def run_backtest(
         "sortino": sortino(rets),
         "max_drawdown": max_drawdown(equity),
         "ending_cash": float(equity.iloc[-1]),
+        "expectancy": expectancy,
+        "avg_win": avg_win,
+        "avg_loss": avg_loss,
+        "profit_factor": profit_factor,
     }
     return BacktestResult(trades=trades, equity_curve=equity, metrics=metrics)

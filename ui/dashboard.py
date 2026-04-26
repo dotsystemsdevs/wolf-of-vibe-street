@@ -24,6 +24,7 @@ import streamlit.components.v1 as components  # noqa: E402
 from backtest.compare import (  # noqa: E402
     DEFAULT_SYMBOLS,
     make_figure,
+    rank_by_expectancy,
     run_comparison,
 )
 from memory.decision_log import DecisionLog  # noqa: E402
@@ -43,7 +44,7 @@ from ui.views import (  # noqa: E402
 DEFAULT_DB_PATH = Path("data/decision_log/traderbot.db")
 REFRESH_INTERVAL_S = 30
 # Bump when UI changes — if you do not see this in the header, you are not running this file.
-DASHBOARD_BUILD = "2026-04-26f"
+DASHBOARD_BUILD = "2026-04-26g"
 
 GREEN = "#22c55e"
 RED = "#ef4444"
@@ -505,6 +506,27 @@ div[data-baseweb="tab-highlight"] { background: var(--accent) !important; }
 """
 
 
+@st.cache_data(ttl=86_400, show_spinner=False)
+def _cached_symbol_ranking(symbols_key: tuple[str, ...], days: int, timeframe: str) -> list[dict]:
+    """24-hour cached symbol-expectancy ranking.
+
+    Re-runs `rank_by_expectancy(run_comparison(...))` but returns plain dicts so the
+    Streamlit cache can serialize them. Cache invalidates on any (symbols, days,
+    timeframe) change, or via the panel's "Refresh" button (clears st.cache_data).
+    """
+    results = run_comparison(list(symbols_key), days=days, timeframe=timeframe)
+    ranked = rank_by_expectancy(results)
+    return [
+        {
+            "symbol": r.symbol,
+            "bars": int(r.bars),
+            "buy_hold_return_pct": float(r.buy_hold_return_pct),
+            "metrics": {k: float(v) for k, v in r.result.metrics.items()},
+        }
+        for r in ranked
+    ]
+
+
 def _ts_to_str(ts_ms: int, fmt: str = "%Y-%m-%d %H:%M") -> str:
     return pd.to_datetime(ts_ms, unit="ms", utc=True).strftime(fmt)
 
@@ -819,12 +841,19 @@ def _render_compare_tab() -> None:
         diff = strat_pct - r.buy_hold_return_pct
         diff_cls = "pos" if diff > 0 else ("neg" if diff < 0 else "muted")
         strat_cls = "pos" if strat_pct > 0 else ("neg" if strat_pct < 0 else "muted")
+        exp = float(m.get("expectancy", 0.0))
+        exp_cls = "pos" if exp > 0 else ("neg" if exp < 0 else "muted")
+        pf = float(m.get("profit_factor", 0.0))
+        pf_str = "∞" if pf == float("inf") else f"{pf:.2f}"
+        pf_cls = "pos" if pf > 1.5 else ("neg" if pf < 1.0 else "muted")
         rows_html.append(
             f"<tr>"
             f"<td><strong>{r.symbol}</strong></td>"
             f'<td class="num">{r.bars}</td>'
             f'<td class="num">{int(m["num_trades"])}</td>'
             f'<td class="num">{m["win_rate"] * 100:.1f}%</td>'
+            f'<td class="num {exp_cls}">${exp:+.2f}</td>'
+            f'<td class="num {pf_cls}">{pf_str}</td>'
             f'<td class="num {strat_cls}"><strong>{strat_pct:+.2f}%</strong></td>'
             f'<td class="num muted">{r.buy_hold_return_pct:+.2f}%</td>'
             f'<td class="num {diff_cls}">{diff:+.2f}pp</td>'
@@ -836,6 +865,7 @@ def _render_compare_tab() -> None:
         '<table class="t">'
         "<thead><tr>"
         "<th>Symbol</th><th>Bars</th><th>Trades</th><th>WR</th>"
+        "<th>Exp/trade</th><th>PF</th>"
         "<th>Strategy</th><th>B&amp;H</th><th>Diff</th>"
         "<th>Sharpe</th><th>MaxDD</th>"
         "</tr></thead><tbody>" + "".join(rows_html) + "</tbody></table>",
@@ -1192,6 +1222,99 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
                         f'<span style="color:#6b6b6b;">{count}</span></div>',
                         unsafe_allow_html=True,
                     )
+
+        # --- Row 3: Symbol expectancy ranker (cached 24h) ---
+        # Decision support: shows whether the symbol the bot is trading right now
+        # actually has the best edge among the watchlist. Backtests are heavy so
+        # the cache is per-day; refresh button below clears it on demand.
+        _section("Symbol expectancy", f"30d backtest · {timeframe} bars · cached 24h")
+        live_symbol = symbol_env
+        try:
+            ranked = _cached_symbol_ranking(DEFAULT_SYMBOLS, days=30, timeframe=timeframe)
+        except Exception as e:  # noqa: BLE001
+            ranked = []
+            st.markdown(
+                f'<div style="font-family:JetBrains Mono,monospace; font-size:11px; '
+                f'color:var(--red); padding:8px 0;">Ranking failed: '
+                f"{type(e).__name__}: {e}</div>",
+                unsafe_allow_html=True,
+            )
+
+        if ranked:
+            rows_html: list[str] = []
+            for i, r in enumerate(ranked):
+                m = r["metrics"]
+                exp = float(m.get("expectancy", 0.0))
+                pf = float(m.get("profit_factor", 0.0))
+                wr = float(m.get("win_rate", 0.0)) * 100
+                tot_pct = float(m.get("total_return_pct", 0.0)) * 100
+                n_tr = int(m.get("num_trades", 0))
+                live_marker = "★" if r["symbol"] == live_symbol else ""
+                rank_marker = ["#1", "#2", "#3"][i] if i < 3 else f"#{i + 1}"
+                exp_cls = "pos" if exp > 0 else ("neg" if exp < 0 else "muted")
+                pf_str = "∞" if pf == float("inf") else f"{pf:.2f}"
+                pf_cls = "pos" if pf > 1.5 else ("neg" if pf < 1.0 else "muted")
+                tot_cls = "pos" if tot_pct > 0 else ("neg" if tot_pct < 0 else "muted")
+                rows_html.append(
+                    f"<tr>"
+                    f'<td class="muted" style="width:32px;">{rank_marker}</td>'
+                    f"<td><strong>{r['symbol']}</strong> "
+                    f'<span style="color:var(--accent); font-weight:700;">{live_marker}</span>'
+                    f"</td>"
+                    f'<td class="num">{n_tr}</td>'
+                    f'<td class="num {exp_cls}"><strong>${exp:+.2f}</strong></td>'
+                    f'<td class="num {pf_cls}">{pf_str}</td>'
+                    f'<td class="num">{wr:.1f}%</td>'
+                    f'<td class="num {tot_cls}">{tot_pct:+.2f}%</td>'
+                    f"</tr>"
+                )
+            st.markdown(
+                '<table class="t">'
+                "<thead><tr>"
+                "<th></th><th>Symbol</th><th>Trades</th>"
+                "<th>Expectancy / trade</th><th>Profit factor</th>"
+                "<th>Win rate</th><th>Total return</th>"
+                "</tr></thead><tbody>" + "".join(rows_html) + "</tbody></table>",
+                unsafe_allow_html=True,
+            )
+
+            # Hint if the bot's current symbol isn't the top-ranked one.
+            top = ranked[0]
+            if top["symbol"] != live_symbol and top["metrics"].get("num_trades", 0) > 0:
+                live_row = next(
+                    (r for r in ranked if r["symbol"] == live_symbol),
+                    None,
+                )
+                if live_row is not None:
+                    delta_exp = top["metrics"]["expectancy"] - live_row["metrics"]["expectancy"]
+                    if delta_exp > 0:
+                        st.markdown(
+                            f'<div style="margin-top:10px; padding:8px 12px; '
+                            f"background:rgba(251,191,36,0.06); border-left:2px solid "
+                            f"var(--accent); font-family:JetBrains Mono,monospace; "
+                            f'font-size:11px; color:var(--text-2);">'
+                            f'<span style="color:var(--accent); font-weight:700;">HINT</span> '
+                            f'<strong>{top["symbol"]}</strong> has '
+                            f"${delta_exp:+.2f}/trade higher expectancy than "
+                            f"<strong>{live_symbol}</strong> over the last 30d. "
+                            f"Switch via <code>TRADERBOT_SYMBOL</code> in <code>.env</code> "
+                            f"and restart the loop."
+                            f"</div>",
+                            unsafe_allow_html=True,
+                        )
+
+            cols = st.columns([1, 4])
+            if cols[0].button("Refresh ranking", width="stretch"):
+                _cached_symbol_ranking.clear()
+                st.rerun()
+            cols[1].markdown(
+                '<div style="font-family:JetBrains Mono,monospace; font-size:10px; '
+                'color:var(--text-3); padding-top:10px;">'
+                "Backtest costs: 10 bps commission + 5 bps slippage. "
+                "★ = symbol the live loop is currently trading."
+                "</div>",
+                unsafe_allow_html=True,
+            )
 
         # --- Footer disclaimer ---
         last_refresh = pd.Timestamp.utcnow().strftime("%H:%M:%S UTC")

@@ -151,6 +151,23 @@ def run_comparison(
     return out
 
 
+def rank_by_expectancy(results: list[SymbolResult]) -> list[SymbolResult]:
+    """Best-to-worst by per-trade expectancy ($), tie-break on Sharpe.
+
+    Symbols with zero trades sink to the bottom — there's no edge to measure.
+    Used by the dashboard's Symbol Expectancy panel to surface "should I be
+    trading something else?" in one glance.
+    """
+    def _key(r: SymbolResult) -> tuple[int, float, float]:
+        m = r.result.metrics
+        n = int(m.get("num_trades", 0))
+        # has_trades-flag first so symbols with 0 trades sort last regardless of
+        # whatever default 0.0 their expectancy/sharpe might be.
+        return (1 if n > 0 else 0, float(m.get("expectancy", 0.0)), float(m.get("sharpe", 0.0)))
+
+    return sorted(results, key=_key, reverse=True)
+
+
 def _parse_env_symbols() -> tuple[str, ...]:
     raw = os.environ.get("TRADERBOT_SYMBOLS", "").strip()
     if not raw:

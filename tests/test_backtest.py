@@ -118,3 +118,56 @@ def test_equity_returns_log_diff() -> None:
     r = equity_returns(eq)
     assert len(r) == 2
     assert r.iloc[0] == pytest.approx(r.iloc[1])  # constant 10% gain → equal log returns
+
+
+# --- expectancy + profit factor metrics (powering the Symbol Expectancy panel) ---
+
+
+def test_expectancy_metric_present_after_winning_trade() -> None:
+    """A single profitable target-hit trade should give expectancy ≈ trade pnl."""
+    df = _bars([(100, 100, 100, 100), (100, 110, 99, 105), (105, 106, 104, 105)])
+    sigs = [_buy(0, stop=95.0, target=110.0), _hold(HOUR_MS), _hold(2 * HOUR_MS)]
+    res = run_backtest(df, sigs, BacktestConfig(commission_bps=0.0, slippage_bps=0.0))
+    assert "expectancy" in res.metrics
+    assert "profit_factor" in res.metrics
+    assert "avg_win" in res.metrics
+    assert "avg_loss" in res.metrics
+    assert res.metrics["expectancy"] == pytest.approx(res.trades[0].pnl)
+    assert res.metrics["avg_win"] == pytest.approx(res.trades[0].pnl)
+    assert res.metrics["avg_loss"] == 0.0
+    assert res.metrics["profit_factor"] == float("inf")  # no losing trades
+
+
+def test_expectancy_zero_when_no_trades() -> None:
+    """Symbols where the strategy never fires should yield expectancy = 0, not NaN."""
+    df = _bars([(100, 100, 100, 100), (100, 100, 100, 100), (100, 100, 100, 100)])
+    sigs = [_hold(0), _hold(HOUR_MS), _hold(2 * HOUR_MS)]
+    res = run_backtest(df, sigs, BacktestConfig(commission_bps=0.0, slippage_bps=0.0))
+    assert res.metrics["num_trades"] == 0
+    assert res.metrics["expectancy"] == 0.0
+    assert res.metrics["profit_factor"] == float("inf")  # no losses → undefined → ∞
+
+
+def test_profit_factor_below_one_for_net_loser() -> None:
+    """Strategy that loses overall: PF must be < 1.0 (the dashboard colors it red)."""
+    # Bar 0 buy, bar 1 hits stop (loss); bar 2 buy, bar 3 hits stop again (loss).
+    df = _bars(
+        [
+            (100, 100, 100, 100),  # bar 0: signal
+            (100, 100, 90, 95),  # bar 1: open 100 → stop 95 hit
+            (95, 95, 95, 95),  # bar 2: signal
+            (95, 95, 85, 90),  # bar 3: open 95 → stop 90 hit
+            (90, 90, 90, 90),
+        ]
+    )
+    sigs = [
+        _buy(0, stop=95.0, target=200.0),
+        _hold(HOUR_MS),
+        _buy(2 * HOUR_MS, stop=90.0, target=200.0),
+        _hold(3 * HOUR_MS),
+        _hold(4 * HOUR_MS),
+    ]
+    res = run_backtest(df, sigs, BacktestConfig(commission_bps=0.0, slippage_bps=0.0))
+    assert res.metrics["num_trades"] == 2
+    assert res.metrics["expectancy"] < 0
+    assert res.metrics["profit_factor"] < 1.0

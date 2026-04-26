@@ -10,6 +10,7 @@ from backtest.compare import (
     DEFAULT_SYMBOLS,
     SymbolResult,
     _parse_env_symbols,
+    rank_by_expectancy,
     render_html,
     render_table,
     run_one,
@@ -68,6 +69,37 @@ def test_render_table_includes_each_symbol() -> None:
     assert "ETH/USDT" in table
     assert "Symbol" in table  # header row
     assert "Sharpe" in table
+
+
+def test_rank_by_expectancy_orders_best_first() -> None:
+    """A trending-up symbol must rank above a trending-down symbol."""
+    up = _df([100.0 + i * 0.5 for i in range(60)])
+    down = _df([100.0 - i * 0.3 for i in range(60)])
+    cfg = BacktestConfig(initial_cash=10_000.0)
+    results = [
+        run_one("BAD/USDT", down, cfg),
+        run_one("GOOD/USDT", up, cfg),
+    ]
+    ranked = rank_by_expectancy(results)
+    # The trending-up series produces a winning trade → ranks first.
+    assert ranked[0].result.metrics.get("expectancy", 0.0) >= ranked[-1].result.metrics.get(
+        "expectancy", 0.0
+    )
+
+
+def test_rank_by_expectancy_zero_trade_symbols_sink_to_bottom() -> None:
+    """Symbols where the strategy never fired must rank last regardless of price action."""
+    flat = _df([100.0] * 60)  # no movement → no signals → no trades
+    up = _df([100.0 + i * 0.5 for i in range(60)])
+    cfg = BacktestConfig(initial_cash=10_000.0)
+    results = [
+        run_one("FLAT/USDT", flat, cfg),
+        run_one("GOOD/USDT", up, cfg),
+    ]
+    ranked = rank_by_expectancy(results)
+    # FLAT must be last; GOOD must be first.
+    assert ranked[0].symbol == "GOOD/USDT"
+    assert ranked[-1].symbol == "FLAT/USDT"
 
 
 def test_render_html_writes_file(tmp_path: Path) -> None:
