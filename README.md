@@ -121,7 +121,9 @@ Read `CLAUDE.md` for operating rules, `memory-bank/@architecture.md` for invaria
 |---|---|
 | Start / stop the bot | Sidebar → **LIVE LOOP** |
 | Pause without stopping | Sidebar → **Kill switch** |
-| P&L, positions, equity, trade history | **DESK** tab |
+| P&L, positions, equity, trade history (25 rows) | **DESK** tab |
+| **TAPE** — full decision log in a dense, filterable data grid (Excel-lik) | **TAPE** tab |
+| **MAP** — ASCII + mermaid system map of the whole stack | **MAP** tab |
 | Multi-symbol backtest + strategy compare (EMA, mean-reversion, + conviction-filter variants) | **COMPARE** tab |
 | Soak health | Top of **DESK** (green / yellow / red banner) |
 | Go live (dry-run → real) + calibration / promote | Sidebar expanders (see `docs/GO_LIVE.md`) |

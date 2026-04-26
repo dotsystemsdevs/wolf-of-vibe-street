@@ -25,7 +25,6 @@ from backtest.compare import (  # noqa: E402
     DEFAULT_STRATEGY_ID,
     DEFAULT_SYMBOLS,
     STRATEGIES,
-    make_figure,
     rank_by_expectancy,
     run_comparison,
     strategy_by_label,
@@ -34,6 +33,8 @@ from memory.decision_log import DecisionLog  # noqa: E402
 from risk.caps import DEFAULT_KILL_SWITCH_PATH, kill_switch_active  # noqa: E402
 from tools import env_config, loop_control  # noqa: E402
 from tools.notifier import TelegramNotifier  # noqa: E402
+from ui.compare_tab import render_compare_tab  # noqa: E402
+from ui.tape_map_views import render_map_tab, render_tape_tab  # noqa: E402
 from ui.views import (  # noqa: E402
     day_pnl,
     equity_curve,
@@ -47,7 +48,7 @@ from ui.views import (  # noqa: E402
 DEFAULT_DB_PATH = Path("data/decision_log/traderbot.db")
 REFRESH_INTERVAL_S = 30
 # Bump when UI changes — if you do not see this in the header, you are not running this file.
-DASHBOARD_BUILD = "2026-04-27a"
+DASHBOARD_BUILD = "2026-04-27b"
 
 # Curated in knowledge.md §9.5 — not runtime deps; for operator + IDE context
 _EXTERNAL_RESEARCH_MD = """
@@ -1123,104 +1124,6 @@ def _live_log_html(rows: list[dict], n: int = 30) -> str:
     )
 
 
-def _render_compare_tab() -> None:
-    """Backtest comparison — runs `backtest.compare` in-process and shows the chart."""
-    st.markdown(
-        '<div class="muted" style="margin-bottom:8px;">Run a strategy across '
-        "multiple symbols and compare equity curves vs buy-and-hold. "
-        "Backfills are reused if the local parquet already covers the window.</div>",
-        unsafe_allow_html=True,
-    )
-
-    c1, c2, c3, c4 = st.columns([3, 1, 1, 2])
-    symbols_str = c1.text_input(
-        "Symbols (comma-separated)",
-        ", ".join(DEFAULT_SYMBOLS),
-        key="compare_symbols",
-    )
-    days = c2.number_input("Days", min_value=7, max_value=180, value=30, step=1, key="compare_days")
-    timeframe = c3.selectbox("Timeframe", ["1h", "4h", "1d"], index=0, key="compare_tf")
-    strategy_label = c4.selectbox(
-        "Strategy",
-        [e.label for e in STRATEGIES.values()],
-        index=0,
-        key="compare_strategy",
-    )
-
-    if st.button("Run comparison", type="primary"):
-        symbols = [s.strip() for s in symbols_str.split(",") if s.strip()]
-        if not symbols:
-            st.error("Need at least one symbol.")
-            return
-        entry = strategy_by_label(strategy_label)
-        with st.spinner(f"Backfilling + backtesting {len(symbols)} symbols on {strategy_label}..."):
-            try:
-                results = run_comparison(
-                    symbols,
-                    days=int(days),
-                    timeframe=timeframe,
-                    strategy_fn=entry.fn,
-                )
-            except Exception as e:
-                st.error(f"Comparison failed: {type(e).__name__}: {e}")
-                return
-        st.session_state["compare_results"] = results
-        st.session_state["compare_results_strategy"] = strategy_label
-
-    results = st.session_state.get("compare_results")
-    if results is None:
-        st.info("Set parameters and click **Run comparison**.")
-        return
-
-    st.plotly_chart(make_figure(results), config={"displayModeBar": False}, width="stretch")
-
-    shown_strategy = st.session_state.get("compare_results_strategy", "Baseline EMA-cross")
-    st.markdown(
-        f'<div class="section-title">Per-symbol breakdown · {shown_strategy}</div>',
-        unsafe_allow_html=True,
-    )
-    # Use the desk's .t table class — same JetBrains Mono / Oswald look as
-    # Trade history. Strategy + Diff get pos/neg color (real outcome). Sharpe,
-    # MaxDD, B&H are *measurements*, not outcomes — kept neutral per color rule.
-    rows_html: list[str] = []
-    for r in results:
-        m = r.result.metrics
-        strat_pct = m["total_return_pct"] * 100
-        diff = strat_pct - r.buy_hold_return_pct
-        diff_cls = "pos" if diff > 0 else ("neg" if diff < 0 else "muted")
-        strat_cls = "pos" if strat_pct > 0 else ("neg" if strat_pct < 0 else "muted")
-        exp = float(m.get("expectancy", 0.0))
-        exp_cls = "pos" if exp > 0 else ("neg" if exp < 0 else "muted")
-        pf = float(m.get("profit_factor", 0.0))
-        pf_str = "∞" if pf == float("inf") else f"{pf:.2f}"
-        pf_cls = "pos" if pf > 1.5 else ("neg" if pf < 1.0 else "muted")
-        rows_html.append(
-            f"<tr>"
-            f"<td><strong>{r.symbol}</strong></td>"
-            f'<td class="num">{r.bars}</td>'
-            f'<td class="num">{int(m["num_trades"])}</td>'
-            f'<td class="num">{m["win_rate"] * 100:.1f}%</td>'
-            f'<td class="num {exp_cls}">${exp:+.2f}</td>'
-            f'<td class="num {pf_cls}">{pf_str}</td>'
-            f'<td class="num {strat_cls}"><strong>{strat_pct:+.2f}%</strong></td>'
-            f'<td class="num muted">{r.buy_hold_return_pct:+.2f}%</td>'
-            f'<td class="num {diff_cls}">{diff:+.2f}pp</td>'
-            f'<td class="num muted">{m["sharpe"]:+.2f}</td>'
-            f'<td class="num muted">{m["max_drawdown"] * 100:.2f}%</td>'
-            f"</tr>"
-        )
-    st.markdown(
-        '<table class="t">'
-        "<thead><tr>"
-        "<th>Symbol</th><th>Bars</th><th>Trades</th><th>WR</th>"
-        "<th>Exp/trade</th><th>PF</th>"
-        "<th>Strategy</th><th>B&amp;H</th><th>Diff</th>"
-        "<th>Sharpe</th><th>MaxDD</th>"
-        "</tr></thead><tbody>" + "".join(rows_html) + "</tbody></table>",
-        unsafe_allow_html=True,
-    )
-
-
 def _positions_html(positions: list[dict]) -> str:
     if not positions:
         return '<div class="muted" style="padding:14px;">No open positions.</div>'
@@ -1350,9 +1253,13 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
             f"(`uv run python -m workers.live_loop`) — page auto-refreshes."
         )
 
-    tab_overview, tab_compare = st.tabs(["DESK", "COMPARE"])
+    tab_overview, tab_compare, tab_tape, tab_map = st.tabs(["DESK", "COMPARE", "TAPE", "MAP"])
 
     with tab_overview:
+        st.caption(
+            "DESK = live P&L, kurvor, positioner, historik (25 sista), aktivitetsflöde. "
+            "TAPE/MAP finns som egna flikar — samma data, tätare/översikts-UX."
+        )
         # Soak health — green/yellow/red banner so a morning check is one glance.
         loop_status = loop_control.status()
         checks = soak_health(
@@ -1773,7 +1680,13 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
         )
 
     with tab_compare:
-        _render_compare_tab()
+        render_compare_tab()
+
+    with tab_tape:
+        render_tape_tab(rows, log_path_str=str(log_path))
+
+    with tab_map:
+        render_map_tab()
 
     with st.sidebar:
         with st.expander("Ser du inte ändringar? (felsök)", expanded=False):
