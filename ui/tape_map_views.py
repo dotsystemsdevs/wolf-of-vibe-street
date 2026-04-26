@@ -49,9 +49,7 @@ def _event_types_from_rows(rows: list[dict]) -> list[str]:
 def render_tape_tab(rows: list[dict], *, log_path_str: str) -> None:
     """Scrollable, filterable, Excel-dense view of the append-only decision log."""
     st.caption(
-        f"**TAPE** read-only — same append-only rows as `{log_path_str}`. "
-        f"Up to {_DEFAULT_LIMIT:,} matching rows (newest at bottom). "
-        f"Filter event types; wide table = audit trail, not a trade ticket."
+        f"Same SQLite as `{log_path_str}` — max ~{_DEFAULT_LIMIT:,} rows shown (newest last)."
     )
     if not rows:
         st.info("Ingen data i loggen ännu.")
@@ -89,78 +87,21 @@ def render_tape_tab(rows: list[dict], *, log_path_str: str) -> None:
         },
     )
     n_all, n_f = len(rows), len(tail)
-    st.caption(
-        f"Rader: **{n_f}** i tabellen  (filtrerat från {len(filtered)}  ·  {n_all} totalt i logg)"
-    )
+    st.caption(f"Showing {n_f} of {n_all} events (filter: {len(filtered)}).")
 
 
 def render_map_tab() -> None:
-    """Single-screen mental model: data → brain → risk → paper/Kraken → log → du."""
-    st.caption(
-        "**MAP** — one static diagram: data → strategies → risk → broker → log → you. "
-        "No controls here; use the sidebar and DESK for actions."
-    )
-
+    """One-line pipeline: where data goes (no interactivity)."""
+    st.caption("Static only — use DESK and sidebar to operate.")
     st.markdown(
-        """
-<div class="section-title" style="margin-top:0;">Dataflöde (vad som händer i sekunder)</div>
-""",
-        unsafe_allow_html=True,
-    )
-
-    ascii_map = r"""
-  ┌─────────────┐     ┌──────────┐     ┌─────────────────┐     ┌────────────┐
-  │ Binance     │     │ Parquet  │     │ EMA/RSI/ATR     │     │ SELL/BUY/  │
-  │ OHLCV (REST)├────►│ bars on  ├────►│ strategies/*.py ├────►│ HOLD +     │
-  │ (publik)   │     │ disk     │     │ + valfri LLM    │     │ conviction │
-  └─────────────┘     └──────────┘     └────────┬────────┘     └──────┬─────┘
-                                            │                        │
-  ┌─────────────┐     ┌──────────┐         │                        ▼
-  │ Risk caps   │     │Executor  │◄────────┘                 ┌──────────────┐
-  │ kill / DD  │     │on_bar    │                          │ PaperBroker  │
-  │ 25% 5% 30T  ├────►│           ├─────────────────────────►eller Kraken  │
-  └─────────────┘     └─────┬────┘                          └──────┬───────┘
-                            │                                        │
-                            ▼                                        ▼
-                     ┌────────────┐                            ┌───────────┐
-                     │ decision_  │  append-only            │ Dashboard │
-                     │ log SQLite │  (trigger-låst)            │  du läser  │
-                     └─────┬──────┘                            └─────┬─────┘
-                           │                                         │
-                           └────────────────TELEGRAM───────────────────┘
-"""
-    st.text(ascii_map)
-
-    mermaid = """
-```mermaid
-flowchart TB
-  subgraph in["Data in"]
-    B[Binance OHLCV] --> P[(Parquet)]
-    P --> F[Features EMA/RSI/ATR]
-  end
-  subgraph think["Strategi"]
-    F --> S[signals]
-    S -->|valfri| L[Claude LLM filter]
-  end
-  think --> R[Risk caps + kill switch]
-  R --> X[Executor]
-  X --> BK[Broker / paper eller Kraken]
-  BK --> D[(decision log SQLite)]
-  D --> U[Streamlit + Telegram]
-```
-
-Klistra in i <https://mermaid.live> om du vill pilla på diagrammet.
-""".strip()
-    st.markdown(mermaid)
-
-    st.markdown(
-        """
-<div class="section-title">Tre lager (minnesregel)</div>
-<ul style="color:#a8a8a8; font-size:12px; line-height:1.5; max-width:700px; font-family:Oswald,sans-serif; letter-spacing:0.06em;">
-  <li><b style="color:#f0f0f0;">1 · SANNING</b> — append-only <code>decision_log</code> (samma rader som <b>TAPE</b>)</li>
-  <li><b style="color:#f0f0f0;">2 · HJÄRNA</b> — strategi + (valfri) LLM-filtrering, <i>före</i> risk</li>
-  <li><b style="color:#f0f0f0;">3 · PENGAR</b> — <code>Executor</code> + broker, alltid caps + kill</li>
-</ul>
-""",
+        '<p style="font-size:1.05rem; line-height:1.7; color:#a8a8a8; margin:4px 0 0 0; '
+        'max-width:42em;">'
+        'Bars on disk <span style="color:#6b6b6b;">→</span> '
+        'strategy / optional LLM <span style="color:#6b6b6b;">→</span> risk '
+        '<span style="color:#6b6b6b;">→</span> executor <span style="color:#6b6b6b;">→</span> '
+        'broker (paper or Kraken) <span style="color:#6b6b6b;">→</span> '
+        '<span style="color:#f0f0f0;">SQLite log</span> '
+        '<span style="color:#6b6b6b;">→</span> this app &amp; Telegram'
+        "</p>",
         unsafe_allow_html=True,
     )

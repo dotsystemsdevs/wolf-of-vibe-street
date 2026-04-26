@@ -15,12 +15,8 @@ from backtest.compare import (  # noqa: E402
 
 def render_compare_tab() -> None:
     """Multi-symbol backtest: same strategies as the live `STRATEGIES` registry."""
-    st.markdown(
-        '<div class="muted" style="margin-bottom:8px;">'
-        "Offline backtest only — does <strong>not</strong> start trades. "
-        "Same <code>STRATEGIES</code> registry as the live loop. "
-        "Equity vs buy-and-hold; fetches/uses cached Parquet for the lookback window.</div>",
-        unsafe_allow_html=True,
+    st.caption(
+        "Offline only — no live orders. Same strategy list as the loop; uses local Parquet cache when possible."
     )
 
     c1, c2, c3, c4 = st.columns([3, 1, 1, 2])

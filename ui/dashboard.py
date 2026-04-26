@@ -48,7 +48,7 @@ from ui.views import (  # noqa: E402
 DEFAULT_DB_PATH = Path("data/decision_log/traderbot.db")
 REFRESH_INTERVAL_S = 30
 # Bump when UI changes — if you do not see this in the header, you are not running this file.
-DASHBOARD_BUILD = "2026-04-26e"
+DASHBOARD_BUILD = "2026-04-26f"
 
 # Curated in knowledge.md (section 9.5) — not runtime deps; for operator + IDE context
 _EXTERNAL_RESEARCH_MD = """
@@ -128,16 +128,6 @@ header[data-testid="stHeader"] { background: transparent; }
 .stDeployButton, footer { display: none; }
 .block-container { padding-top: 1.5rem; padding-bottom: 1.5rem; padding-left: 1.25rem; padding-right: 1.25rem; max-width: 100%; }
 
-.desk-hint {
-  font-family: "Oswald", sans-serif;
-  font-size: 10px; color: var(--text-3);
-  line-height: 1.5;
-  letter-spacing: 0.06em;
-  max-width: 64rem;
-  margin: 0 0 6px 0;
-}
-.desk-hint kbd, .desk-hint code { font-family: "JetBrains Mono", monospace; font-size: 9px; color: var(--text-2); }
-
 /* Full-bleed loop status — edge-to-edge strip above the desk */
 .loop-banner-bleed {
   position: relative;
@@ -197,14 +187,14 @@ header[data-testid="stHeader"] { background: transparent; }
   letter-spacing: 0.14em;
   color: #fafafa;
   text-transform: uppercase;
-  text-shadow: 0 0 42px rgba(234, 88, 12, 0.2);
+  text-shadow: 0 0 20px rgba(234, 88, 12, 0.12);
 }
 .wolf-tagline {
   font-family: "Oswald", sans-serif;
   font-weight: 500;
   font-size: 11px;
-  letter-spacing: 0.28em;
-  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  text-transform: none;
   color: var(--text-3);
   margin-top: 6px;
 }
@@ -263,7 +253,7 @@ header[data-testid="stHeader"] { background: transparent; }
 .kpi .label {
   font-family: "Oswald", sans-serif;
   font-size: 10px; color: var(--text-3);
-  text-transform: uppercase; letter-spacing: 0.2em;
+  text-transform: none; letter-spacing: 0.06em;
   margin-bottom: 10px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
@@ -295,7 +285,7 @@ header[data-testid="stHeader"] { background: transparent; }
 .kpi-mini .lbl {
   font-family: "Oswald", sans-serif;
   font-size: 10px; color: var(--text-3);
-  text-transform: uppercase; letter-spacing: 0.18em;
+  text-transform: none; letter-spacing: 0.06em;
   margin-bottom: 4px;
 }
 .kpi-mini .val {
@@ -305,16 +295,16 @@ header[data-testid="stHeader"] { background: transparent; }
   font-variant-numeric: tabular-nums;
 }
 
-/* --- Section headers --- */
+/* --- Section headers (quiet, not “command” caps) --- */
 .sect {
   display: flex; justify-content: space-between; align-items: baseline;
-  margin: 20px 0 8px 0; padding: 0 0 6px 0;
+  margin: 18px 0 6px 0; padding: 0 0 5px 0;
   border-bottom: 1px solid var(--border);
 }
 .sect .t {
   font-family: "Oswald", sans-serif;
-  font-size: 11px; color: var(--text-2);
-  text-transform: uppercase; letter-spacing: 0.22em;
+  font-size: 12px; color: var(--text-2);
+  text-transform: none; letter-spacing: 0.04em;
   font-weight: 600;
 }
 .sect .r {
@@ -408,8 +398,8 @@ header[data-testid="stHeader"] { background: transparent; }
 .stButton > button {
   font-family: "Oswald", sans-serif !important;
   font-size: 11px !important;
-  letter-spacing: 0.16em !important;
-  text-transform: uppercase !important;
+  letter-spacing: 0.04em !important;
+  text-transform: none !important;
   font-weight: 600 !important;
   border-radius: 0 !important;
   border: 1px solid var(--border-2) !important;
@@ -460,8 +450,8 @@ input:focus, textarea:focus {
 /* Streamlit tabs — neutralize colors */
 button[data-baseweb="tab"] {
   font-family: "Oswald", sans-serif !important;
-  font-size: 11px !important; letter-spacing: 0.14em !important;
-  text-transform: uppercase !important; font-weight: 600 !important;
+  font-size: 12px !important; letter-spacing: 0.03em !important;
+  text-transform: none !important; font-weight: 600 !important;
   color: var(--text-3) !important;
 }
 button[data-baseweb="tab"][aria-selected="true"] { color: var(--text) !important; }
@@ -481,7 +471,7 @@ div[data-baseweb="tab-highlight"] { background: var(--accent) !important; }
 [data-testid="stSidebar"] .stSubheader {
   font-family: "Oswald", sans-serif !important;
   font-size: 12px !important; font-weight: 600 !important;
-  letter-spacing: 0.22em !important; text-transform: uppercase !important;
+  letter-spacing: 0.05em !important; text-transform: none !important;
   color: var(--accent) !important;
   margin: 14px 0 8px 0 !important;
   padding-bottom: 6px;
@@ -504,8 +494,8 @@ div[data-baseweb="tab-highlight"] { background: var(--accent) !important; }
 [data-testid="stSidebar"] .stButton > button {
   font-family: "Oswald", sans-serif !important;
   font-size: 11px !important;
-  letter-spacing: 0.16em !important;
-  text-transform: uppercase !important;
+  letter-spacing: 0.04em !important;
+  text-transform: none !important;
   font-weight: 600 !important;
   border-radius: 0 !important;
   border: 1px solid var(--border-2) !important;
@@ -569,8 +559,8 @@ div[data-baseweb="tab-highlight"] { background: var(--accent) !important; }
 [data-testid="stSidebar"] [data-testid="stExpander"] summary {
   font-family: "Oswald", sans-serif !important;
   font-size: 11px !important;
-  letter-spacing: 0.16em !important;
-  text-transform: uppercase !important;
+  letter-spacing: 0.04em !important;
+  text-transform: none !important;
   color: var(--text-2) !important;
   font-weight: 600 !important;
 }
@@ -1345,9 +1335,7 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
         f'flex-wrap:wrap; gap:16px;">'
         f"<div>"
         f'<div class="wolf-main">Wolf of Vibe Street</div>'
-        f'<div class="wolf-tagline">Execution desk · paper or live (from <code style="'
-        f'font-size:10px;color:var(--text-2)">.env</code>) · P&amp;L from decision log · '
-        f"times UTC</div>"
+        f'<div class="wolf-tagline">Paper or live · P&amp;L from log · UTC</div>'
         f'<div style="margin-top:10px;">'
         f'<span class="wolf-dash-label">Dashboard</span>'
         f'<span class="mode {mode_cls}">{mode_text}</span>'
@@ -1355,16 +1343,15 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
         f"</div></div>"
         f'<div class="status" style="display:flex; gap:14px; flex-wrap:wrap; '
         f'justify-content:flex-end; text-align:right;">'
-        f'<span title="TRADERBOT_SYMBOL and TRADERBOT_TIMEFRAME from .env">'
-        f'<span style="color:#6b6b6b;">SYMBOL</span> '
+        f'<span title="From .env">'
+        f'<span style="color:#6b6b6b;">Symbol</span> '
         f'<span class="v">{symbol_env} · {timeframe}</span></span>'
-        f'<span title="Countdown to next bar close (aligned to timeframe)">'
-        f'<span style="color:#6b6b6b;">NEXT BAR</span> '
+        f'<span title="Time to bar close">'
+        f'<span style="color:#6b6b6b;">Next bar</span> '
         f'<span class="v">{next_bar_str}</span></span>'
-        f'<span class="v" title="Streamlit server time, UTC">{now_utc_str}</span>'
-        f'<span title="RUN = loop up and kill switch off. IDLE = kill switch on. '
-        f'OFF = no loop process.">'
-        f'<span style="color:#6b6b6b;">STATUS</span> '
+        f'<span class="v" title="UTC">{now_utc_str}</span>'
+        f'<span title="Loop + kill switch">'
+        f'<span style="color:#6b6b6b;">State</span> '
         f'<span class="v {status_cls}">{status_v}</span></span>'
         f"</div></div></div>",
         unsafe_allow_html=True,
@@ -1379,17 +1366,7 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
     tab_overview, tab_compare, tab_tape, tab_map = st.tabs(["DESK", "COMPARE", "TAPE", "MAP"])
 
     with tab_overview:
-        st.caption(
-            "DESK · capital, drawdown, exposure, and recent activity — your primary watch. "
-            "COMPARE runs multi-symbol backtests; TAPE and MAP are denser or schematic views of "
-            "the same log."
-        )
-        st.markdown(
-            f'<p class="desk-hint">All $ amounts are USD. Day P&L uses the UTC day boundary. '
-            f"Page reloads about every {REFRESH_INTERVAL_S}s so you don't need to refresh the "
-            f"browser.</p>",
-            unsafe_allow_html=True,
-        )
+        st.caption(f"Account view · USD · day P&L = UTC day · auto-refresh ≈{REFRESH_INTERVAL_S}s")
         # Soak health — green/yellow/red banner so a morning check is one glance.
         loop_status = loop_control.status()
         checks = soak_health(
@@ -1407,18 +1384,18 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
             if c["status"] == "warn" and worst != "error":
                 worst = "warn"
         banner_color = {"ok": "#22c55e", "warn": "#fbbf24", "error": "#ef4444"}[worst]
-        banner_label = {"ok": "HEALTHY", "warn": "ATTENTION", "error": "ISSUES"}[worst]
+        banner_label = {"ok": "All clear", "warn": "Worth a look", "error": "Needs work"}[worst]
         st.markdown(
             f'<div style="background:linear-gradient(180deg,#121212 0%,#0c0c0c 100%); '
             f"border:1px solid #1a1a1a; border-left:2px solid {banner_color}; "
-            f'padding:10px 14px; margin-bottom:10px;">'
+            f'padding:8px 12px; margin-bottom:10px;">'
             f'<div style="display:flex; justify-content:space-between; align-items:center;">'
-            f'<span style="font-family:Oswald,sans-serif; font-size:10px; color:#6b6b6b; '
-            f'text-transform:uppercase; letter-spacing:0.2em; font-weight:600;">'
-            f"Soak status</span>"
+            f'<span style="font-family:Oswald,sans-serif; font-size:11px; color:#6b6b6b; '
+            f'letter-spacing:0.04em; font-weight:600;">'
+            f"Health</span>"
             f"<span style=\"font-family:'JetBrains Mono',monospace; "
-            f"color:{banner_color}; font-weight:700; font-size:11px; "
-            f'letter-spacing:0.1em;">{banner_label}</span></div>'
+            f"color:{banner_color}; font-weight:600; font-size:12px; "
+            f'letter-spacing:0;">{banner_label}</span></div>'
             f'<div style="margin-top:8px; display:grid; '
             f"grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap:4px 16px; "
             f"font-family:'JetBrains Mono',monospace; font-size:10px;\">"
@@ -1553,12 +1530,6 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
         m2.markdown(_mini("Max drawdown", maxdd_str, maxdd_color), unsafe_allow_html=True)
         m3.markdown(_mini("Win rate", wr_str, wr_color), unsafe_allow_html=True)
         m4.markdown(_mini("Exposure (notional)", exp_str, exp_color), unsafe_allow_html=True)
-        st.markdown(
-            '<p class="desk-hint" style="margin-top:2px;">'
-            "Sharpe / max drawdown need enough equity history. Win rate = closed trades only. "
-            "Exposure = open notional &divide; equity (not the same as risk caps).</p>",
-            unsafe_allow_html=True,
-        )
 
         st.write("")  # spacer
 
@@ -1825,23 +1796,11 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
         render_map_tab()
 
     with st.sidebar:
-        st.caption(
-            f"**RUN** / **RISK** / **GO LIVE** = day-to-day. "
-            f"**SETTINGS** = keys, log tools, and links. Refreshes ~{REFRESH_INTERVAL_S}s."
-        )
+        st.caption(f"Loop + risk + go-live · rest under Settings · ~{REFRESH_INTERVAL_S}s refresh")
         st.subheader("RUN")
         loop_status = loop_control.status()
         if loop_status.running:
-            uptime_s = (
-                int((pd.Timestamp.now("UTC").timestamp() * 1000 - loop_status.started_at_ms) / 1000)
-                if loop_status.started_at_ms
-                else 0
-            )
-            mins, secs = divmod(uptime_s, 60)
-            hours, mins = divmod(mins, 60)
-            st.success(
-                f"Running · PID {loop_status.pid} · uptime {hours:d}h {mins:02d}m {secs:02d}s"
-            )
+            st.caption("Up — see top banner for PID/uptime")
             if st.button("Stop loop", type="secondary", width="stretch"):
                 with st.spinner("Stopping..."):
                     loop_control.stop()
@@ -1882,7 +1841,6 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
 
         st.divider()
         st.subheader("RISK")
-        st.caption("Stop-loss at the file/token layer before Kraken sees an order.")
         st.markdown("**Kill switch**")
         if kill_switch_active(kill_switch_path):
             st.error("ACTIVE — bot is paused")
