@@ -44,7 +44,10 @@ Currently in use:
 """
 
 
-def test_expected_clean_output_all_settings_pass() -> None:
+def test_expected_clean_output_all_settings_pass(monkeypatch) -> None:
+    # CI is Linux: real platform would keep is_macos False and is_clean would stay False
+    # even with perfect pmset text — fake output simulates a Mac, so we stub Darwin.
+    monkeypatch.setattr("tools.system_check.platform.system", lambda: "Darwin")
     report = check_readiness(fake_pmset_output=PASSING_OUTPUT)
     assert report.is_clean
     assert len(report.checks) == len(REQUIRED_SETTINGS)
