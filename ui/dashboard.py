@@ -47,7 +47,7 @@ from ui.views import (  # noqa: E402
 DEFAULT_DB_PATH = Path("data/decision_log/traderbot.db")
 REFRESH_INTERVAL_S = 30
 # Bump when UI changes — if you do not see this in the header, you are not running this file.
-DASHBOARD_BUILD = "2026-04-26k"
+DASHBOARD_BUILD = "2026-04-26l"
 
 GREEN = "#22c55e"
 RED = "#ef4444"
@@ -594,15 +594,38 @@ def _go_live_readiness(
         }
     )
 
+    has_reconcile = False
+    try:
+        import importlib.util  # noqa: PLC0415
+
+        has_reconcile = importlib.util.find_spec("execution.reconcile") is not None
+    except Exception:  # noqa: BLE001
+        has_reconcile = False
+    last_reconcile = next(
+        (r for r in reversed(rows) if r["event_type"] == "reconcile"),
+        None,
+    )
+    if has_reconcile and last_reconcile is not None:
+        reconcile_status = "done"
+        reconcile_detail = f"Last run on loop start: {last_reconcile['rationale'] or 'no detail'}"
+    elif has_reconcile:
+        reconcile_status = "done"
+        reconcile_detail = (
+            "execution/reconcile.py present. Runs on every build_from_env() — "
+            "first run will appear in the decision log next loop start."
+        )
+    else:
+        reconcile_status = "todo"
+        reconcile_detail = (
+            "Pulls open orders + positions from broker on start, halts "
+            "new orders on mismatch. Implement after Kraken broker."
+        )
     checks.append(
         {
             "key": "reconcile",
             "name": "Reconcile-on-startup (P-11)",
-            "status": "todo",
-            "detail": (
-                "Pulls open orders + positions from broker on start, halts "
-                "new orders on mismatch. Implement after Kraken broker."
-            ),
+            "status": reconcile_status,
+            "detail": reconcile_detail,
         }
     )
 

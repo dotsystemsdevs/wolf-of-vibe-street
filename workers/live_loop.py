@@ -270,6 +270,43 @@ def build_from_env() -> tuple[LiveLoop, dict[str, str]]:
         risk_pct=risk_pct,
         trade_mode=trade_mode,
     )
+
+    # Reconcile-on-startup (P-11): pull broker positions/orders, compare to log.
+    # Paper: always trivially clean (broker boots empty + log walked from scratch).
+    # Live: a mismatch means a previous run left state we can't account for —
+    # halt new entries via the kill switch and let the operator resolve manually.
+    from execution.reconcile import reconcile  # noqa: PLC0415
+
+    rec = reconcile(broker, log.all())
+    log.append(
+        DecisionEvent(
+            timestamp_ms=int(time.time() * 1000),
+            event_type="reconcile",
+            symbol=symbol,
+            strategy_id=strategy_entry.id,
+            rationale=rec.summary(),
+            metadata={
+                "is_clean": rec.is_clean,
+                "broker_positions": len(rec.broker_positions),
+                "log_positions": len(rec.log_positions),
+                "open_orders": rec.open_orders_count,
+                "mismatches": [
+                    {"symbol": m.symbol, "broker_qty": m.broker_qty, "log_qty": m.log_qty}
+                    for m in rec.mismatches
+                ],
+                "mode": trade_mode,
+            },
+        )
+    )
+    if not rec.is_clean and trade_mode != PAPER_MODE:
+        # Hard fail in live mode — refuse to start with broker/log divergence.
+        # Operator must investigate and either: cancel the orphan orders, manually
+        # log the missing trades into decision_log, or restart with a fresh log.
+        raise RuntimeError(
+            f"reconcile FAILED in {trade_mode} mode — refusing to start. "
+            f"{rec.summary()}. Investigate before restarting."
+        )
+
     notifier = TelegramNotifier()
 
     loop = LiveLoop(
