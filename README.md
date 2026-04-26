@@ -158,6 +158,8 @@ uv run pytest
 ./dev-start.sh
 ```
 
+To run the same steps as [GitHub Actions](.github/workflows/ci.yml) (ruff, format check, pytest with coverage): `./scripts/check-ci.sh`.
+
 Open <http://localhost:8501>.
 
 ### Optional config (env vars)
