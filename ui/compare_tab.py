@@ -17,9 +17,9 @@ def render_compare_tab() -> None:
     """Multi-symbol backtest: same strategies as the live `STRATEGIES` registry."""
     st.markdown(
         '<div class="muted" style="margin-bottom:8px;">'
-        "Run a strategy across multiple symbols and compare equity vs buy-and-hold. "
-        "Uses the same <code>STRATEGIES</code> registry as the live loop. "
-        "Local parquet is reused if it already covers the window.</div>",
+        "Offline backtest only — does <strong>not</strong> start trades. "
+        "Same <code>STRATEGIES</code> registry as the live loop. "
+        "Equity vs buy-and-hold; fetches/uses cached Parquet for the lookback window.</div>",
         unsafe_allow_html=True,
     )
 

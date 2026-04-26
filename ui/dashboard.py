@@ -19,7 +19,6 @@ import os  # noqa: E402
 import pandas as pd  # noqa: E402
 import plotly.graph_objects as go  # noqa: E402
 import streamlit as st  # noqa: E402
-import streamlit.components.v1 as components  # noqa: E402
 
 from backtest.compare import (  # noqa: E402
     DEFAULT_STRATEGY_ID,
@@ -48,7 +47,7 @@ from ui.views import (  # noqa: E402
 DEFAULT_DB_PATH = Path("data/decision_log/traderbot.db")
 REFRESH_INTERVAL_S = 30
 # Bump when UI changes — if you do not see this in the header, you are not running this file.
-DASHBOARD_BUILD = "2026-04-27b"
+DASHBOARD_BUILD = "2026-04-26c"
 
 # Curated in knowledge.md §9.5 — not runtime deps; for operator + IDE context
 _EXTERNAL_RESEARCH_MD = """
@@ -104,7 +103,17 @@ CSS = """
 }
 header[data-testid="stHeader"] { background: transparent; }
 .stDeployButton, footer { display: none; }
-.block-container { padding-top: 1.25rem; padding-bottom: 1rem; max-width: 100%; }
+.block-container { padding-top: 1.5rem; padding-bottom: 1.5rem; padding-left: 1.25rem; padding-right: 1.25rem; max-width: 100%; }
+
+.desk-hint {
+  font-family: "Oswald", sans-serif;
+  font-size: 10px; color: var(--text-3);
+  line-height: 1.5;
+  letter-spacing: 0.06em;
+  max-width: 64rem;
+  margin: 0 0 6px 0;
+}
+.desk-hint kbd, .desk-hint code { font-family: "JetBrains Mono", monospace; font-size: 9px; color: var(--text-2); }
 
 /* --- Header: main title + tape --- */
 .wolf-header {
@@ -185,7 +194,7 @@ header[data-testid="stHeader"] { background: transparent; }
 }
 .kpi .label {
   font-family: "Oswald", sans-serif;
-  font-size: 9px; color: var(--text-3);
+  font-size: 10px; color: var(--text-3);
   text-transform: uppercase; letter-spacing: 0.2em;
   margin-bottom: 10px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
@@ -217,7 +226,7 @@ header[data-testid="stHeader"] { background: transparent; }
 }
 .kpi-mini .lbl {
   font-family: "Oswald", sans-serif;
-  font-size: 9px; color: var(--text-3);
+  font-size: 10px; color: var(--text-3);
   text-transform: uppercase; letter-spacing: 0.18em;
   margin-bottom: 4px;
 }
@@ -1160,20 +1169,21 @@ def _positions_html(positions: list[dict]) -> str:
 def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
     st.set_page_config(page_title="traderbot", layout="wide", initial_sidebar_state="expanded")
     st.markdown(FONT_LINK + CSS, unsafe_allow_html=True)
-    # Full-page reload: must run in parent frame; guard so Streamlit remounts do not stack timers.
+    # Full-page reload on interval (keeps log/KPIs fresh). st.html is not iframed; script runs
+    # in the app context (replaces deprecated streamlit.components.v1.html for this use).
     ms = int(REFRESH_INTERVAL_S * 1000)
-    components.html(
+    st.html(
+        f'<div aria-hidden="true" style="height:0;width:0;overflow:hidden">…</div>'
         f"<script>"
         f"try {{"
-        f"  var w = window.parent || window.top || window;"
-        f"  if (!w.__traderbot_dash_reload_scheduled) {{"
-        f"    w.__traderbot_dash_reload_scheduled = true;"
-        f"    setTimeout(function() {{ w.location.reload(); }}, {ms});"
+        f"  if (!window.__traderbot_dash_reload_scheduled) {{"
+        f"    window.__traderbot_dash_reload_scheduled = true;"
+        f"    setTimeout(function() {{ window.location.reload(); }}, {ms});"
         f"  }}"
         f"}} catch (e) {{}}"
         f"</script>",
-        height=0,
-        width=0,
+        width="content",
+        unsafe_allow_javascript=True,
     )
 
     rows: list[dict] = []
@@ -1228,7 +1238,9 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
         f'flex-wrap:wrap; gap:16px;">'
         f"<div>"
         f'<div class="wolf-main">Wolf of Vibe Street</div>'
-        f'<div class="wolf-tagline">Execution desk · Paper session · Full tape</div>'
+        f'<div class="wolf-tagline">Execution desk · paper or live (from <code style="'
+        f'font-size:10px;color:var(--text-2)">.env</code>) · P&amp;L from decision log · '
+        f"times UTC</div>"
         f'<div style="margin-top:10px;">'
         f'<span class="wolf-dash-label">Dashboard</span>'
         f'<span class="mode {mode_cls}">{mode_text}</span>'
@@ -1236,12 +1248,16 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
         f"</div></div>"
         f'<div class="status" style="display:flex; gap:14px; flex-wrap:wrap; '
         f'justify-content:flex-end; text-align:right;">'
-        f'<span><span style="color:#6b6b6b;">SYMBOL</span> '
+        f'<span title="TRADERBOT_SYMBOL and TRADERBOT_TIMEFRAME from .env">'
+        f'<span style="color:#6b6b6b;">SYMBOL</span> '
         f'<span class="v">{symbol_env} · {timeframe}</span></span>'
-        f'<span><span style="color:#6b6b6b;">NEXT BAR</span> '
+        f'<span title="Countdown to next bar close (aligned to timeframe)">'
+        f'<span style="color:#6b6b6b;">NEXT BAR</span> '
         f'<span class="v">{next_bar_str}</span></span>'
-        f'<span class="v">{now_utc_str}</span>'
-        f'<span><span style="color:#6b6b6b;">STATUS</span> '
+        f'<span class="v" title="Streamlit server time, UTC">{now_utc_str}</span>'
+        f'<span title="RUN = loop up and kill switch off. IDLE = kill switch on. '
+        f'OFF = no loop process.">'
+        f'<span style="color:#6b6b6b;">STATUS</span> '
         f'<span class="v {status_cls}">{status_v}</span></span>'
         f"</div></div></div>",
         unsafe_allow_html=True,
@@ -1257,8 +1273,15 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
 
     with tab_overview:
         st.caption(
-            "DESK = live P&L, kurvor, positioner, historik (25 sista), aktivitetsflöde. "
-            "TAPE/MAP finns som egna flikar — samma data, tätare/översikts-UX."
+            "DESK · capital, drawdown, exposure, and recent activity — your primary watch. "
+            "COMPARE runs multi-symbol backtests; TAPE and MAP are denser or schematic views of "
+            "the same log."
+        )
+        st.markdown(
+            f'<p class="desk-hint">All $ amounts are USD. Day P&L uses the UTC day boundary. '
+            f"Page reloads about every {REFRESH_INTERVAL_S}s so you don't need to refresh the "
+            f"browser.</p>",
+            unsafe_allow_html=True,
         )
         # Soak health — green/yellow/red banner so a morning check is one glance.
         loop_status = loop_control.status()
@@ -1423,6 +1446,12 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
         m2.markdown(_mini("Max drawdown", maxdd_str, maxdd_color), unsafe_allow_html=True)
         m3.markdown(_mini("Win rate", wr_str, wr_color), unsafe_allow_html=True)
         m4.markdown(_mini("Exposure (notional)", exp_str, exp_color), unsafe_allow_html=True)
+        st.markdown(
+            '<p class="desk-hint" style="margin-top:2px;">'
+            "Sharpe / max drawdown need enough equity history. Win rate = closed trades only. "
+            "Exposure = open notional &divide; equity (not the same as risk caps).</p>",
+            unsafe_allow_html=True,
+        )
 
         st.write("")  # spacer
 
@@ -1689,6 +1718,10 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
         render_map_tab()
 
     with st.sidebar:
+        st.caption(
+            f"Operator panel · start/stop loop, risk gates, alerts. "
+            f"Main area refreshes ~{REFRESH_INTERVAL_S}s while this tab is open."
+        )
         with st.expander("Ser du inte ändringar? (felsök)", expanded=False):
             st.markdown(
                 f"- **Build som ska synas i headern:** `{DASHBOARD_BUILD}`\n"

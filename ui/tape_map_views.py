@@ -49,8 +49,9 @@ def _event_types_from_rows(rows: list[dict]) -> list[str]:
 def render_tape_tab(rows: list[dict], *, log_path_str: str) -> None:
     """Scrollable, filterable, Excel-dense view of the append-only decision log."""
     st.caption(
-        f"**TAPE** — samma rader som i SQLite `{log_path_str}`. Upp till "
-        f"{_DEFAULT_LIMIT:,} senaste raderna (nyast sist). Ingen skrivrätt."
+        f"**TAPE** read-only — same append-only rows as `{log_path_str}`. "
+        f"Up to {_DEFAULT_LIMIT:,} matching rows (newest at bottom). "
+        f"Filter event types; wide table = audit trail, not a trade ticket."
     )
     if not rows:
         st.info("Ingen data i loggen ännu.")
@@ -95,7 +96,10 @@ def render_tape_tab(rows: list[dict], *, log_path_str: str) -> None:
 
 def render_map_tab() -> None:
     """Single-screen mental model: data → brain → risk → paper/Kraken → log → du."""
-    st.caption("**MAP** — en sida, hela flödet. Ingen interaktion här, bara orientering.")
+    st.caption(
+        "**MAP** — one static diagram: data → strategies → risk → broker → log → you. "
+        "No controls here; use the sidebar and DESK for actions."
+    )
 
     st.markdown(
         """
