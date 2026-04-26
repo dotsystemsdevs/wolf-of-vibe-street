@@ -31,6 +31,7 @@ from backtest.compare import (  # noqa: E402
 from memory.decision_log import DecisionLog  # noqa: E402
 from risk.caps import DEFAULT_KILL_SWITCH_PATH, kill_switch_active  # noqa: E402
 from tools import env_config, loop_control  # noqa: E402
+from tools.loop_control import LoopStatus  # noqa: E402
 from tools.notifier import TelegramNotifier  # noqa: E402
 from ui.compare_tab import render_compare_tab  # noqa: E402
 from ui.tape_map_views import render_map_tab, render_tape_tab  # noqa: E402
@@ -47,7 +48,7 @@ from ui.views import (  # noqa: E402
 DEFAULT_DB_PATH = Path("data/decision_log/traderbot.db")
 REFRESH_INTERVAL_S = 30
 # Bump when UI changes — if you do not see this in the header, you are not running this file.
-DASHBOARD_BUILD = "2026-04-26d"
+DASHBOARD_BUILD = "2026-04-26e"
 
 # Curated in knowledge.md (section 9.5) — not runtime deps; for operator + IDE context
 _EXTERNAL_RESEARCH_MD = """
@@ -136,6 +137,51 @@ header[data-testid="stHeader"] { background: transparent; }
   margin: 0 0 6px 0;
 }
 .desk-hint kbd, .desk-hint code { font-family: "JetBrains Mono", monospace; font-size: 9px; color: var(--text-2); }
+
+/* Full-bleed loop status — edge-to-edge strip above the desk */
+.loop-banner-bleed {
+  position: relative;
+  left: 50%;
+  right: 50%;
+  margin-left: -50vw;
+  margin-right: -50vw;
+  width: 100vw;
+  max-width: 100vw;
+  box-sizing: border-box;
+  margin-top: -0.25rem;
+  margin-bottom: 6px;
+}
+.loop-banner-inner {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  line-height: 1.4;
+  padding: 10px 1.25rem;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  box-sizing: border-box;
+}
+.loop-banner-inner .l {
+  color: var(--text);
+  font-weight: 600;
+}
+.loop-banner-inner .d { color: var(--text-3); font-size: 10px; font-weight: 500; }
+.loop-banner--run .loop-banner-inner {
+  border-left: 3px solid var(--green);
+  background: linear-gradient(90deg, rgba(34, 197, 94, 0.14) 0%, #0a0a0a 45%);
+}
+.loop-banner--idle .loop-banner-inner {
+  border-left: 3px solid var(--accent);
+  background: linear-gradient(90deg, rgba(251, 191, 36, 0.1) 0%, #0a0a0a 45%);
+}
+.loop-banner--off .loop-banner-inner {
+  border-left: 3px solid var(--red);
+  background: linear-gradient(90deg, rgba(239, 68, 68, 0.1) 0%, #0a0a0a 45%);
+}
 
 /* --- Header: main title + tape --- */
 .wolf-header {
@@ -1188,6 +1234,43 @@ def _positions_html(positions: list[dict]) -> str:
     )
 
 
+def _loop_status_banner_html(loop_status: LoopStatus, *, kill_on: bool) -> str:
+    """Full-width top strip: live loop PID + uptime (same signal as sidebar RUN, main canvas)."""
+    from html import escape as _html_esc
+
+    log_s = _html_esc(str(loop_status.log_path))
+    if loop_status.running and loop_status.pid is not None:
+        if loop_status.started_at_ms is not None:
+            uptime_s = int(
+                (pd.Timestamp.now("UTC").timestamp() * 1000 - loop_status.started_at_ms) / 1000
+            )
+            m, s = divmod(uptime_s, 60)
+            h, m = divmod(m, 60)
+            up = f"{h:d}h {m:02d}m {s:02d}s"
+        else:
+            up = "—"
+        main = f"Running · PID {loop_status.pid} · uptime {up}" + (
+            ' · <span style="color:var(--accent);font-weight:600;">IDLE</span> (kill switch on)'
+            if kill_on
+            else ""
+        )
+        cls = "loop-banner--idle" if kill_on else "loop-banner--run"
+    else:
+        cls = "loop-banner--off"
+        main = (
+            "Loop not running — <strong>RUN</strong> in the sidebar or "
+            "<code>uv run python -m workers.live_loop</code>"
+        )
+    return (
+        f'<div class="loop-banner-bleed {cls}">'
+        f'<div class="loop-banner-inner" style="align-items:center;">'
+        f'<span class="l" style="white-space:nowrap;">LIVE LOOP</span>'
+        f'<span style="flex:1; min-width:min(200px,100%); color:var(--text);">{main}</span>'
+        f'<span class="d" style="text-align:right;max-width:50%;">log {log_s}</span>'
+        f"</div></div>"
+    )
+
+
 def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
     st.set_page_config(page_title="traderbot", layout="wide", initial_sidebar_state="expanded")
     st.markdown(FONT_LINK + CSS, unsafe_allow_html=True)
@@ -1222,11 +1305,13 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
     current_cash = float(eq_df.iloc[-1]["cash"]) if not eq_df.empty else initial_cash
     total_return = (current_equity - initial_cash) / initial_cash if initial_cash > 0 else 0
 
-    # --- Header: institutional + trader context ---
+    # --- Header: full-width live-loop banner, then title row (symbol, clock, STATUS) ---
     now = pd.Timestamp.now("UTC")
     now_utc_str = now.strftime("%H:%M:%S UTC")
-    loop_alive = loop_control.status().running
+    loop_status = loop_control.status()
+    loop_alive = loop_status.running
     kill_on = kill_switch_active(kill_switch_path)
+    st.markdown(_loop_status_banner_html(loop_status, kill_on=kill_on), unsafe_allow_html=True)
     live_trading = os.environ.get("LIVE_TRADING", "false").strip().lower() == "true"
     if loop_alive and not kill_on:
         status_v, status_cls = "RUN", "run"
