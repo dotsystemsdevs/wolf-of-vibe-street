@@ -374,6 +374,9 @@ Model emits a number in `[-1, +1]` (or 0..100) representing conviction. Trading 
 - Logs the score → backtest "what if threshold was 0.3 vs 0.5?" trivially.
 **Takeaway:** never have the model emit `BUY` / `SELL`. Always emit a score; let an explicit, separate threshold/sizing rule consume it. Keeps research and execution decoupled. #arch #signal
 
+### S-59 — **Curate external repos; don't Frankenstein stacks** ([source: 2026-04 curation of public AI-trading projects])
+The space has excellent **reference** codebases (agent platforms, DEX frameworks, multi-agent papers). None of them share our exact stack (Streamlit, single-position CEX loop, Kraken interlocks). **Takeaway:** add links + lessons to `knowledge.md` and optional UI pointers; only **vendor in** another framework (e.g. DeFi executor, full LangGraph floor) after an explicit design decision. Mixing two “main apps” without that decision produced unmaintainable glue in other projects. #arch #planning
+
 ---
 
 ## 2. Our experiences

@@ -133,6 +133,47 @@ def test_build_from_env_kraken_broker_requires_live_trading_flag(
         build_from_env()
 
 
+def test_build_from_env_kraken_defaults_to_live_calibration_mode(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Kraken (dry-run) + LIVE_TRADING — default trade_mode is live_calibration."""
+    monkeypatch.setenv("TRADERBOT_LOG_PATH", str(tmp_path / "log.db"))
+    monkeypatch.setenv("TRADERBOT_BROKER", "kraken")
+    monkeypatch.setenv("LIVE_TRADING", "true")
+    monkeypatch.setenv("KRAKEN_DRY_RUN", "true")
+    monkeypatch.setenv("KRAKEN_API_KEY", "k")
+    monkeypatch.setenv("KRAKEN_API_SECRET", "s")
+    monkeypatch.delenv("TRADERBOT_TRADE_MODE", raising=False)
+
+    loop, cfg = build_from_env()
+    assert loop.executor.trade_mode == "live_calibration"
+    assert "live_calibration" in cfg["broker"]
+
+
+def test_build_from_env_kraken_trade_mode_live_promotion(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """TRADERBOT_TRADE_MODE=live must flip executor to full-live mode (wider caps)."""
+    from risk.caps import live_calibration_caps, live_full_caps  # noqa: PLC0415
+
+    monkeypatch.setenv("TRADERBOT_LOG_PATH", str(tmp_path / "log.db"))
+    monkeypatch.setenv("TRADERBOT_BROKER", "kraken")
+    monkeypatch.setenv("LIVE_TRADING", "true")
+    monkeypatch.setenv("KRAKEN_DRY_RUN", "true")
+    monkeypatch.setenv("KRAKEN_API_KEY", "k")
+    monkeypatch.setenv("KRAKEN_API_SECRET", "s")
+    monkeypatch.setenv("TRADERBOT_TRADE_MODE", "live")
+
+    loop, cfg = build_from_env()
+    assert loop.executor.trade_mode == "live"
+    assert "mode=live" in cfg["broker"]
+    # Full-live caps: higher max notional / concurrent positions than calibration.
+    cal = live_calibration_caps(initial_cash_usd=loop.executor.cash)
+    full = live_full_caps(initial_cash_usd=loop.executor.cash)
+    assert loop.executor.caps.max_concurrent_positions == full.max_concurrent_positions
+    assert cal.max_concurrent_positions < full.max_concurrent_positions
+
+
 def test_build_from_env_unknown_broker_raises(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

@@ -290,6 +290,7 @@ def build_from_env() -> tuple[LiveLoop, dict[str, str]]:
     # belt-and-suspenders — KrakenBroker's own constructor also asserts it.
     from risk.live_gate import (  # noqa: PLC0415
         LIVE_CALIBRATION_MODE,
+        LIVE_MODE,
         PAPER_MODE,
         is_live_trading_enabled,
     )
@@ -315,9 +316,13 @@ def build_from_env() -> tuple[LiveLoop, dict[str, str]]:
             assert_live_session_active()
 
         broker = KrakenBroker(dry_run=kraken_dry_run)
-        # All real-broker fills get tagged as calibration. Promotion to full
-        # 'live' is a manual operator action after the first 30 trades (S-55).
+        # Default: real-broker fills tagged as calibration. After 30 trades the
+        # operator sets TRADERBOT_TRADE_MODE=live in `.env` (dashboard button)
+        # and restarts — `live_full_caps` applies.
         trade_mode = LIVE_CALIBRATION_MODE
+        tm = os.environ.get("TRADERBOT_TRADE_MODE", "").strip().lower()
+        if tm == LIVE_MODE:
+            trade_mode = LIVE_MODE
     elif broker_name == "paper":
         broker = PaperBroker(
             get_price=lambda s: marks.get(s, 0.0),
@@ -336,7 +341,7 @@ def build_from_env() -> tuple[LiveLoop, dict[str, str]]:
         from risk.caps import live_calibration_caps  # noqa: PLC0415
 
         caps = live_calibration_caps(initial_cash_usd=initial_cash)
-    elif trade_mode == "live":  # full-live promotion (manual operator action)
+    elif trade_mode == LIVE_MODE:  # full-live promotion (manual operator action)
         from risk.caps import live_full_caps  # noqa: PLC0415
 
         caps = live_full_caps(initial_cash_usd=initial_cash)

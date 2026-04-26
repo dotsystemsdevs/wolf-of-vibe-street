@@ -47,7 +47,19 @@ from ui.views import (  # noqa: E402
 DEFAULT_DB_PATH = Path("data/decision_log/traderbot.db")
 REFRESH_INTERVAL_S = 30
 # Bump when UI changes — if you do not see this in the header, you are not running this file.
-DASHBOARD_BUILD = "2026-04-26s"
+DASHBOARD_BUILD = "2026-04-27a"
+
+# Curated in knowledge.md §9.5 — not runtime deps; for operator + IDE context
+_EXTERNAL_RESEARCH_MD = """
+- [Vibe-Trading (HKUDS)](https://github.com/HKUDS/Vibe-Trading)
+- [TradingAgents](https://tradingagents-ai.github.io) · [code](https://github.com/tauricresearch/tradingagents)
+- [AI-Trader (HKUDS)](https://github.com/HKUDS/AI-Trader)
+- [Trading Strategy (org)](https://github.com/tradingstrategy-ai) · [trading-strategy](https://github.com/tradingstrategy-ai/trading-strategy)
+- [NOFX](https://github.com/NoFxAiOS/nofx)
+- [OpenAlice](https://github.com/TraderAlice/OpenAlice)
+- [ai-agents-for-trading (Moon-style)](https://github.com/MrFadiAi/ai-agents-for-trading)
+- [Harvard Algorithmic + AI (RBI)](https://github.com/moondevonyt/Harvard-Algorithmic-Trading-with-AI)
+"""
 
 GREEN = "#22c55e"
 RED = "#ef4444"
@@ -1276,7 +1288,7 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
     total_return = (current_equity - initial_cash) / initial_cash if initial_cash > 0 else 0
 
     # --- Header: institutional + trader context ---
-    now = pd.Timestamp.utcnow()
+    now = pd.Timestamp.now("UTC")
     now_utc_str = now.strftime("%H:%M:%S UTC")
     loop_alive = loop_control.status().running
     kill_on = kill_switch_active(kill_switch_path)
@@ -1347,7 +1359,7 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
             rows,
             bot_running=loop_status.running,
             kill_switch_on=kill_switch_active(kill_switch_path),
-            now_ms=int(pd.Timestamp.utcnow().timestamp() * 1000),
+            now_ms=int(pd.Timestamp.now("UTC").timestamp() * 1000),
             expected_bar_seconds=tf_seconds,
         )
         worst = "ok"
@@ -1391,7 +1403,7 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
         from risk.caps import RiskCaps as _RiskCaps  # noqa: PLC0415
 
         max_pos = _RiskCaps().max_concurrent_positions
-        now_ms = int(pd.Timestamp.utcnow().timestamp() * 1000)
+        now_ms = int(pd.Timestamp.now("UTC").timestamp() * 1000)
         today_pnl = day_pnl(rows, now_ms=now_ms)
 
         def _sign(value: float) -> str:
@@ -1706,7 +1718,7 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
             loop_running=loop_status.running,
             loop_started_at_ms=loop_status.started_at_ms,
             env=env_config.read_env(),
-            now_ms=int(pd.Timestamp.utcnow().timestamp() * 1000),
+            now_ms=int(pd.Timestamp.now("UTC").timestamp() * 1000),
         )
         n_done = sum(1 for c in readiness if c["status"] == "done")
         n_total = len(readiness)
@@ -1751,7 +1763,7 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
         )
 
         # --- Footer disclaimer ---
-        last_refresh = pd.Timestamp.utcnow().strftime("%H:%M:%S UTC")
+        last_refresh = pd.Timestamp.now("UTC").strftime("%H:%M:%S UTC")
         st.markdown(
             f'<div class="footer">'
             f"<div>Paper execution · Testing only · Not financial advice</div>"
@@ -1776,11 +1788,14 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
                 "- **Hård omladdning i webbläsaren:** Cmd+Shift+R (Mac) / Ctrl+Shift+R (Win)\n"
                 "- Rensa cache: Streamlit-menyn **⋮ → Clear cache** (om du ser den)."
             )
+        with st.expander("Referens-repos (AI-trading)", expanded=False):
+            st.caption("Samma lista som i `knowledge.md` §9.5 — inspiration, inga beroenden.")
+            st.markdown(_EXTERNAL_RESEARCH_MD)
         st.subheader("LIVE LOOP")
         loop_status = loop_control.status()
         if loop_status.running:
             uptime_s = (
-                int((pd.Timestamp.utcnow().timestamp() * 1000 - loop_status.started_at_ms) / 1000)
+                int((pd.Timestamp.now("UTC").timestamp() * 1000 - loop_status.started_at_ms) / 1000)
                 if loop_status.started_at_ms
                 else 0
             )
@@ -1863,7 +1878,7 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
             if existing:
                 most_recent = existing[0]
                 most_recent_age_min = int(
-                    (pd.Timestamp.utcnow().timestamp() - most_recent.stat().st_mtime) / 60
+                    (pd.Timestamp.now("UTC").timestamp() - most_recent.stat().st_mtime) / 60
                 )
                 st.caption(
                     f"Latest: `{most_recent.name}` · {most_recent_age_min} min ago · "
@@ -2063,7 +2078,7 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
                 loop_running=loop_status.running,
                 loop_started_at_ms=loop_status.started_at_ms,
                 env=env_live,
-                now_ms=int(pd.Timestamp.utcnow().timestamp() * 1000),
+                now_ms=int(pd.Timestamp.now("UTC").timestamp() * 1000),
             )
             blockers = [
                 c for c in ready_checks if c["status"] == "todo" and c["key"] not in ("soak",)
@@ -2149,13 +2164,47 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
                     f"Calibration phase complete — {cal_count} trades logged. "
                     f"Ready to promote to full live mode (wider caps)."
                 )
-                # Promotion is a no-op in env terms today — the live_full_caps
-                # preset gets picked up on next loop start when we add a
-                # TRADERBOT_TRADE_MODE override. For now the button is a marker.
-                st.caption(
-                    "Promotion logic lands in the next session; for now this is a status "
-                    "marker. The bot continues with calibration caps until then."
+                env_tm = (
+                    env_config.read_env().get("TRADERBOT_TRADE_MODE", "").strip().lower()
                 )
+                if env_tm == "live":
+                    st.info(
+                        "Full-live caps are configured (`TRADERBOT_TRADE_MODE=live` in `.env`). "
+                        "If you just changed this, **stop and start** the live loop to load them."
+                    )
+                else:
+                    st.caption(
+                        "Promoting writes `TRADERBOT_TRADE_MODE=live` to `.env` and widens risk "
+                        "caps on the **next** loop start (see `docs/GO_LIVE.md` § Phase 5)."
+                    )
+                    promo_ok = st.checkbox(
+                        "I understand full-live caps: up to 50% per position, 10% daily loss, "
+                        "2 concurrent positions (vs tighter calibration limits).",
+                        key="promote_full_live_confirm",
+                    )
+                    if st.button(
+                        "Promote to full live — write TRADERBOT_TRADE_MODE=live",
+                        type="primary",
+                        width="stretch",
+                        disabled=not promo_ok,
+                    ):
+                        env_config.update_env({"TRADERBOT_TRADE_MODE": "live"})
+                        for k in ("promote_full_live_confirm",):
+                            st.session_state.pop(k, None)
+                        st.success(
+                            "Updated `.env`. **Stop** the live loop, then **Start** so the new "
+                            "caps take effect."
+                        )
+                        st.rerun()
+                with st.expander("Revert to calibration caps (testing / rollback)", expanded=False):
+                    st.caption(
+                        "Sets `TRADERBOT_TRADE_MODE=live_calibration`. Same as unset for Kraken — "
+                        "tight caps for the first 30-style risk profile. Restart the loop after."
+                    )
+                    if st.button("Write TRADERBOT_TRADE_MODE=live_calibration", key="promo_revert"):
+                        env_config.update_env({"TRADERBOT_TRADE_MODE": "live_calibration"})
+                        st.success("Reverted in `.env`. Stop + start the loop.")
+                        st.rerun()
             else:
                 st.caption(
                     f"{CALIBRATION_TRADE_COUNT - cal_count} trades remaining before "

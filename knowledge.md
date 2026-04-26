@@ -248,8 +248,7 @@ Agent-native social trading: any AI agent registers, gets $100k paper capital, c
 
 ## 9. Reference Repos & Cross-Repo Patterns
 
-We surveyed 11 open-source AI/agent trading projects. The patterns that show up
-in *most* of them are the success factors — what's converged is what works.
+We surveyed **11** open-source AI/agent trading projects in the first pass (table §9.1). **§9.5** adds a 2026-04 **curated link list** (Vibe, TradingAgents, AI-Trader, DEX stack, NOFX, OpenAlice, etc.) with how each relates to *this* bot — not merged code, just knowledge. The patterns that show up in *most* of them are the success factors — what's converged is what works.
 
 ### 9.1 Comparison table
 
@@ -347,6 +346,24 @@ A pragmatic synthesis:
 4. **Add execution** like `ritmex`: CCXT, Zod-validated contracts, dry-run, audit trail.
 5. **Add social** like `AI-Trader` (optional): publish signals to `ai4trade.ai` for a public track record.
 6. **Don't** copy `PowerTrader`'s "no stop-loss" stance — it's the documented anti-pattern.
+
+### 9.5 Curated follow-up (2026-04) — links & how they relate to *this* bot
+
+These are **not** dependencies of Wolf of Vibe Street. They are **comparable systems** to read for patterns (multi-agent, DEX, pedagogy, platform economics). We **curate into `knowledge.md`**; we do **not** merge unrelated stacks (e.g. our path is CEX+CCXT+Streamlit, not the entire Trading Strategy / DeFi executor unless we explicitly add it later).
+
+| Resource | What it is | WOLF-relevant angle |
+|----------|------------|---------------------|
+| [HKUDS/Vibe-Trading](https://github.com/HKUDS/Vibe-Trading) | NL → strategy, swarms, MCP, memory | Same HKUDS lineage as AI-Trader; best reference for **skills + MCP + persistent memory** |
+| [TradingAgents site](https://tradingagents-ai.github.io) | Paper + visual overview | Multi-agent “trading floor”: analysts → bull/bear research → trader → **risk** |
+| [tauricresearch/tradingagents](https://github.com/tauricresearch/tradingagents) | Code + LangGraph | Aligns with our **LLM filter + risk caps** story; debate layer is optional |
+| [HKUDS/AI-Trader](https://github.com/HKUDS/AI-Trader) | Agent-native platform, ai4trade | **Signals + copy-trade** model; **FastAPI + workers** split (see §8) |
+| [tradingstrategy-ai (org)](https://github.com/tradingstrategy-ai) | DeFi / DEX focus | [trading-strategy](https://github.com/tradingstrategy-ai/trading-strategy) lib + trade-executor — **different market model** (on-chain) than our spot CEX; useful if we ever add DEX |
+| [NoFxAiOS/nofx](https://github.com/NoFxAiOS/nofx) | Go+React, AI competition, x402 | **Leaderboard + multi-model** pressure-testing; pay-per-call ideas |
+| [TraderAlice/OpenAlice](https://github.com/TraderAlice/OpenAlice) | One-agent research→exit | **End-to-end** narrative (equities/crypto/commodities/forex) — good checklist for *our* single-symbol loop |
+| [MrFadiAi/ai-agents-for-trading](https://github.com/MrFadiAi/ai-agents-for-trading) | Moon-style multi-agent (risk/entry/exit) | Reinforces **separate risk agent** from strategy code (we use caps + kill switch) |
+| [Harvard-Algorithmic-Trading-with-AI](https://github.com/moondevonyt/Harvard-Algorithmic-Trading-with-AI) | RBI: Research → Backtest → Implement | Same discipline as our **backtest before live** rule |
+
+Canonical paper link for TradingAgents: [arXiv:2412.20138](https://arxiv.org/abs/2412.20138) (Xiao et al., 2024).
 
 ---
 
@@ -446,7 +463,7 @@ Hosting:        VPS (Hetzner/Vultr) or cloud (AWS/GCP); colocate near exchange i
 ### Repos (surveyed — see §9 for cross-repo patterns)
 - `HKUDS/AI-Trader` — agent-native social trading platform.
 - `HKUDS/Vibe-Trading` — NL → strategy multi-agent workspace, MCP, memory.
-- `TauricResearch/TradingAgents` — multi-agent debate framework (LangGraph).
+- `TauricResearch/TradingAgents` + [project site](https://tradingagents-ai.github.io) — multi-agent debate framework (LangGraph); paper on arXiv.
 - `virattt/ai-hedge-fund` — 19-agent investor-persona hedge fund (Buffett/Munger/Burry/…).
 - `discountry/ritmex-ai-trader` — TS/Bun multi-agent with Zod contracts, dry-run.
 - `NoFxAiOS/nofx` — Go+React multi-AI competition platform, x402 micropayments.
@@ -457,6 +474,10 @@ Hosting:        VPS (Hetzner/Vultr) or cloud (AWS/GCP); colocate near exchange i
 - `alanvito1/ORSTAC` — 4000+ Deriv DBot XML scripts.
 - `pipiku915/FinMem-LLM-StockTrading` — layered-memory LLM trading agent.
 - `AI4Finance-Foundation/FinRL` — RL for trading.
+- `tradingstrategy-ai/trading-strategy` — Python DEX data + backtest (DeFi; AGPL — read licence before reusing).
+- `TraderAlice/OpenAlice` — full lifecycle agent narrative (reference only).
+- `MrFadiAi/ai-agents-for-trading` — experimental multi-agent (Moon Dev lineage).
+- `moondevonyt/Harvard-Algorithmic-Trading-with-AI` — RBI pedagogy (Research/Backtest/Implement).
 
 ### Live trading bots / frameworks (production-ready or near-it)
 - `freqtrade/freqtrade` (~40k stars, active 2025) — most popular open-source crypto bot. Strategy in Python class, CCXT-based, supports Binance/Bybit/Kraken/OKX/KuCoin/Bitmart and many more. **FreqAI** module adds adaptive ML — train classifiers/regressors/NNs on historical data, retrain online during live runs. Web UI + Telegram. Sane default starting point.

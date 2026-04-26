@@ -31,6 +31,8 @@ LIVE_TRADING_OPT_IN_VALUE = "true"  # exact match, lowercase, no whitespace allo
 #   - "paper":            PaperBroker — never a real order.
 #   - "live_calibration": real broker, first N trades — small size, gated.
 #   - "live":             real broker, post-calibration — full size allowed.
+# Kraken: set env `TRADERBOT_TRADE_MODE=live` after 30 calibration fills
+# (dashboard button writes `.env`); default/unset on Kraken is calibration.
 TradeMode = str  # one of: "paper" | "live_calibration" | "live"
 PAPER_MODE: TradeMode = "paper"
 LIVE_CALIBRATION_MODE: TradeMode = "live_calibration"

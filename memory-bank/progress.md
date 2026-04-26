@@ -5,6 +5,21 @@
 
 ---
 
+## 2026-04-27 — External research curation (Vibe, TradingAgents, AI-Trader, DEX, NOFX, OpenAlice, etc.)
+
+- `knowledge.md` §9.5 — new table: curated GitHub + site links the user provided, with one-line "how this relates to WOLF" (CEX stack stays primary; DEX/Trading Strategy called out as a different market model). arXiv link for TradingAgents paper.
+- `experiences.md` **S-59** — "curate, don't Frankenstein stacks" when pulling ideas from other repos.
+- `README` already points at `docs/GO_LIVE.md`; no change required for this pass.
+- Dashboard: sidebar expander **Referens-repos (AI-trading)** with the same links for quick access while operating; `DASHBOARD_BUILD` bump.
+
+**Next:** Optional: deeper read of one repo (e.g. OpenAlice) if we add a feature; no merge until decided.
+
+**Blockers:** none.
+
+**New lessons:** S-59.
+
+---
+
 ## 2026-04-25 (session 26) — Telegram setup wizard (no terminal needed)
 
 User starting overnight soak wanted alerts on phone but didn't want to edit `.env` manually. Wizard now lives in the dashboard sidebar.

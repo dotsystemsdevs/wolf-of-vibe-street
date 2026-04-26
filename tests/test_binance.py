@@ -66,9 +66,47 @@ def test_failure_invalid_inputs_raise_value_error(kwargs: dict) -> None:
 
 
 def test_failure_network_error_propagates() -> None:
-    """Failure: client error is not swallowed — caller decides whether to retry."""
+    """After retries exhausted, the last NetworkError is raised (not swallowed)."""
     import ccxt
 
     client = _FakeClient(exc=ccxt.NetworkError("upstream down"))
     with pytest.raises(ccxt.NetworkError, match="upstream down"):
-        fetch_ohlcv("BTC/USDT", client=client)
+        fetch_ohlcv("BTC/USDT", client=client, max_retries=1, base_backoff_s=0)
+
+
+def test_transient_errors_retry_then_succeed() -> None:
+    """Network blips: fail twice, third fetch returns data."""
+    import ccxt
+
+    class _Flaky:
+        def __init__(self) -> None:
+            self.n = 0
+            self.raw = [SAMPLE_RAW[0]]
+
+        def fetch_ohlcv(
+            self, symbol: str, timeframe: str = "1h", since: int | None = None, limit: int | None = None
+        ) -> list[list[float]]:  # noqa: ARG002
+            self.n += 1
+            if self.n < 3:
+                raise ccxt.NetworkError("blip")
+            return self.raw
+
+    flaky = _Flaky()
+    bars = fetch_ohlcv("BTC/USDT", timeframe="1h", limit=1, client=flaky, base_backoff_s=0)
+    assert flaky.n == 3
+    assert len(bars) == 1
+    assert bars[0]["close"] == 35050.0
+
+
+def test_non_transient_error_not_retried() -> None:
+    """InvalidOrder / non-network errors: single attempt, no sleep loop worth retrying."""
+    import ccxt
+
+    class _Bad:
+        def fetch_ohlcv(
+            self, symbol: str, timeframe: str = "1h", since: int | None = None, limit: int | None = None
+        ) -> list[list[float]]:  # noqa: ARG002
+            raise ccxt.BadSymbol("nope")
+
+    with pytest.raises(ccxt.BadSymbol, match="nope"):
+        fetch_ohlcv("BTC/USDT", client=_Bad(), max_retries=4, base_backoff_s=0)

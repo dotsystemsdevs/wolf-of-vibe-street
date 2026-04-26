@@ -25,6 +25,7 @@ from data.store import bars_path, load_bars, save_bars
 from features.compute import bars_to_df
 from signals.types import Signal
 from strategies.baseline_ema_cross import generate_signals as baseline_signals
+from strategies.conviction_filtered import make_conviction_filtered
 from strategies.mean_reversion_rsi import generate_signals as mean_rev_signals
 
 DEFAULT_SYMBOLS = ("BTC/USDT", "ETH/USDT", "SOL/USDT")
@@ -56,6 +57,20 @@ STRATEGIES: dict[str, StrategyEntry] = {
         id="mean_reversion_rsi",
         label="Mean-reversion RSI",
         fn=mean_rev_signals,
+    ),
+    # Filtered variants — conviction threshold 0.5 is a deterministic stand-in
+    # for the live LLM filter (which is too expensive to run in backtest). If a
+    # filtered variant beats its raw counterpart, the live LLM filter will
+    # likely beat it too (Claude has richer context than just conviction).
+    "baseline_filtered": StrategyEntry(
+        id="baseline_filtered",
+        label="Baseline + conviction filter (≥0.5)",
+        fn=make_conviction_filtered(baseline_signals, threshold=0.5),
+    ),
+    "mean_rev_filtered": StrategyEntry(
+        id="mean_rev_filtered",
+        label="Mean-reversion + conviction filter (≥0.5)",
+        fn=make_conviction_filtered(mean_rev_signals, threshold=0.5),
     ),
 }
 DEFAULT_STRATEGY_ID = "baseline_ema_cross"
