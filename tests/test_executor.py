@@ -119,3 +119,44 @@ def test_no_buy_when_already_long(tmp_path: Path) -> None:
     ex.on_bar(_buy(ts=1), _bar(ts=1))
     qty_after = ex.broker.positions()[0].quantity
     assert qty_after == qty_before
+
+
+def test_trade_mode_tagged_in_fill_metadata(tmp_path: Path) -> None:
+    """Every fill's metadata_json must carry mode=… so paper vs live is auditable."""
+    import json
+
+    broker = PaperBroker(
+        get_price=lambda _: 100.0,
+        slippage_bps=0.0,
+        commission_bps=0.0,
+        clock_ms=lambda: 0,
+    )
+    log = DecisionLog(tmp_path / "log.db")
+    ex = Executor(
+        broker=broker,
+        log=log,
+        strategy_id="test",
+        initial_cash=10_000.0,
+        trade_mode="live_calibration",
+    )
+    ex.on_bar(_buy(), _bar())
+    ex.on_bar(_sell(ts=1), _bar(ts=1))
+
+    fills = [r for r in log.all() if r["event_type"] == "order_filled"]
+    assert len(fills) == 2
+    for f in fills:
+        meta = json.loads(f["metadata_json"])
+        assert meta["mode"] == "live_calibration", f"expected mode=live_calibration, got {meta!r}"
+
+
+def test_trade_mode_defaults_to_paper(tmp_path: Path) -> None:
+    """Existing call sites that don't pass trade_mode must get 'paper' (back-compat)."""
+    import json
+
+    ex = _executor(tmp_path, price=100.0)  # no trade_mode kwarg
+    ex.on_bar(_buy(), _bar())
+
+    fills = [r for r in ex.log.all() if r["event_type"] == "order_filled"]
+    assert fills, "expected at least one fill"
+    meta = json.loads(fills[0]["metadata_json"])
+    assert meta["mode"] == "paper"

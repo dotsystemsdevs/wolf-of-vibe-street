@@ -47,7 +47,7 @@ from ui.views import (  # noqa: E402
 DEFAULT_DB_PATH = Path("data/decision_log/traderbot.db")
 REFRESH_INTERVAL_S = 30
 # Bump when UI changes — if you do not see this in the header, you are not running this file.
-DASHBOARD_BUILD = "2026-04-26i"
+DASHBOARD_BUILD = "2026-04-26j"
 
 GREEN = "#22c55e"
 RED = "#ef4444"
@@ -536,6 +536,194 @@ def _cached_symbol_ranking(
         }
         for r in ranked
     ]
+
+
+def _go_live_readiness(
+    *,
+    rows: list[dict],
+    loop_running: bool,
+    loop_started_at_ms: int | None,
+    env: dict[str, str],
+    now_ms: int,
+) -> list[dict]:
+    """Return the 11-item path-to-live checklist with auto-detected status.
+
+    Each item: {key, name, status: "done"|"todo"|"in_progress", detail}.
+    Pure function — easy to test, easy to render.
+    """
+    from risk.live_gate import (  # noqa: PLC0415
+        CALIBRATION_TRADE_COUNT,
+        is_live_trading_enabled,
+    )
+
+    checks: list[dict] = []
+
+    live_flag = is_live_trading_enabled(env)
+    checks.append(
+        {
+            "key": "live_flag",
+            "name": "LIVE_TRADING env flag",
+            "status": "done" if live_flag else "todo",
+            "detail": (
+                "Set to 'true' — real broker construction allowed."
+                if live_flag
+                else "Not set — bot stays paper-only. Set LIVE_TRADING=true "
+                "in .env when you're ready to wire a real broker."
+            ),
+        }
+    )
+
+    has_kraken = False
+    try:
+        import importlib.util  # noqa: PLC0415
+
+        has_kraken = importlib.util.find_spec("execution.ccxt_kraken") is not None
+    except Exception:  # noqa: BLE001
+        has_kraken = False
+    checks.append(
+        {
+            "key": "real_broker",
+            "name": "Real broker adapter (Kraken via CCXT)",
+            "status": "done" if has_kraken else "todo",
+            "detail": (
+                "execution/ccxt_kraken.py present."
+                if has_kraken
+                else "Only PaperBroker exists. Next session: build "
+                "KrakenBroker implementing the same Broker Protocol."
+            ),
+        }
+    )
+
+    checks.append(
+        {
+            "key": "reconcile",
+            "name": "Reconcile-on-startup (P-11)",
+            "status": "todo",
+            "detail": (
+                "Pulls open orders + positions from broker on start, halts "
+                "new orders on mismatch. Implement after Kraken broker."
+            ),
+        }
+    )
+
+    checks.append(
+        {
+            "key": "human_gate",
+            "name": "Per-session human 'go live' gate",
+            "status": "todo",
+            "detail": (
+                "Sidebar widget where you type LIVE to confirm this session's "
+                "real-money trading. Distinct from the env flag."
+            ),
+        }
+    )
+
+    fills = [r for r in rows if r["event_type"] == "order_filled"]
+    checks.append(
+        {
+            "key": "calibration",
+            "name": f"Calibration mode (first {CALIBRATION_TRADE_COUNT} trades tagged)",
+            "status": "done",
+            "detail": (
+                f"Executor writes mode=… into every fill's metadata_json. "
+                f"Live broker will use 'live_calibration' for the first "
+                f"{CALIBRATION_TRADE_COUNT} trades (S-55), then 'live'. "
+                f"Currently {len(fills)} fills logged."
+            ),
+        }
+    )
+
+    tg_token = env.get("TELEGRAM_BOT_TOKEN", "").strip()
+    tg_chat = env.get("TELEGRAM_CHAT_ID", "").strip()
+    tg_ok = bool(tg_token and tg_chat)
+    checks.append(
+        {
+            "key": "telegram",
+            "name": "Telegram alerts configured (critical for live)",
+            "status": "done" if tg_ok else "todo",
+            "detail": (
+                "Bot can notify you of fills, kill-switch events, and crashes."
+                if tg_ok
+                else "Not configured. Sidebar → Telegram alerts → enter token "
+                "+ chat ID. Optional for paper, mandatory before live."
+            ),
+        }
+    )
+
+    checks.append(
+        {
+            "key": "live_caps",
+            "name": "Hardened risk caps for live (max $50/trade, daily loss kill)",
+            "status": "todo",
+            "detail": (
+                "Existing caps are paper-tuned. Live needs absolute-dollar "
+                "position cap (not just %), tighter daily-DD kill, and a "
+                "first-trade-of-day delay so a bad open doesn't wipe out."
+            ),
+        }
+    )
+
+    checks.append(
+        {
+            "key": "mac_mini",
+            "name": "Mac Mini 24/7 prep (pmset, auto-start)",
+            "status": "todo",
+            "detail": (
+                "Manual setup: `sudo pmset -a sleep 0 disksleep 0 powernap 0 "
+                "autorestart 1 womp 1`, disable display sleep, optionally a "
+                "launchd plist for auto-start on reboot."
+            ),
+        }
+    )
+
+    soak_target_s = 7 * 24 * 3600
+    if loop_started_at_ms and loop_running:
+        soak_elapsed_s = max(0, (now_ms - loop_started_at_ms) // 1000)
+        soak_pct = min(100, soak_elapsed_s * 100 // soak_target_s)
+        soak_h = soak_elapsed_s // 3600
+        if soak_elapsed_s >= soak_target_s:
+            soak_status = "done"
+            soak_detail = f"7-day soak complete — {soak_h}h elapsed."
+        else:
+            soak_status = "in_progress"
+            soak_detail = (
+                f"{soak_h}h / 168h elapsed ({soak_pct}%). Bot must run "
+                f"continuously without crashes or stuck signals."
+            )
+    else:
+        soak_status = "todo"
+        soak_detail = "Loop not running — start it from the sidebar."
+    checks.append(
+        {
+            "key": "soak",
+            "name": "7-day continuous paper soak (Phase 1 final task)",
+            "status": soak_status,
+            "detail": soak_detail,
+        }
+    )
+
+    checks.append(
+        {
+            "key": "decision_log",
+            "name": "Decision log audit trail (append-only SQLite)",
+            "status": "done",
+            "detail": f"{len(rows):,} rows logged. UPDATE/DELETE blocked by triggers.",
+        }
+    )
+
+    checks.append(
+        {
+            "key": "coid",
+            "name": "Idempotent client_order_id",
+            "status": "done",
+            "detail": (
+                "make_client_order_id(strategy_id, signal_id) gives every "
+                "order a deterministic ID — retries can't double-fill."
+            ),
+        }
+    )
+
+    return checks
 
 
 def _ts_to_str(ts_ms: int, fmt: str = "%Y-%m-%d %H:%M") -> str:
@@ -1388,6 +1576,59 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
                 "</div>",
                 unsafe_allow_html=True,
             )
+
+        # --- Row 4: Go-Live readiness checklist ---
+        # The 11-point path from paper → real money. Auto-detected status per
+        # item; manual steps are flagged with a clear "what to do" detail line.
+        # Order matches Phase 3 of the implementation plan.
+        readiness = _go_live_readiness(
+            rows=rows,
+            loop_running=loop_status.running,
+            loop_started_at_ms=loop_status.started_at_ms,
+            env=env_config.read_env(),
+            now_ms=int(pd.Timestamp.utcnow().timestamp() * 1000),
+        )
+        n_done = sum(1 for c in readiness if c["status"] == "done")
+        n_total = len(readiness)
+        _section(
+            "Go-Live readiness",
+            f"{n_done} / {n_total} done · path from paper → real money",
+        )
+        status_glyph = {"done": "✓", "in_progress": "⏳", "todo": "○"}
+        status_color = {
+            "done": "var(--green)",
+            "in_progress": "var(--accent)",
+            "todo": "var(--text-3)",
+        }
+        rows_html: list[str] = []
+        for i, c in enumerate(readiness, start=1):
+            glyph = status_glyph[c["status"]]
+            color = status_color[c["status"]]
+            name_color = "var(--text)" if c["status"] != "todo" else "var(--text-2)"
+            rows_html.append(
+                f'<tr style="border-bottom:1px solid var(--border);">'
+                f'<td style="padding:8px 10px; width:28px; color:var(--text-3); '
+                f"font-family:'JetBrains Mono',monospace; font-size:11px; "
+                f'vertical-align:top;">#{i:02d}</td>'
+                f'<td style="padding:8px 10px; width:24px; color:{color}; '
+                f"font-family:'JetBrains Mono',monospace; font-size:14px; "
+                f'font-weight:700; vertical-align:top;">{glyph}</td>'
+                f'<td style="padding:8px 10px; vertical-align:top;">'
+                f"<div style=\"font-family:'Oswald',sans-serif; font-size:12px; "
+                f"font-weight:600; letter-spacing:0.06em; color:{name_color}; "
+                f'text-transform:uppercase;">{c["name"]}</div>'
+                f"<div style=\"font-family:'JetBrains Mono',monospace; "
+                f"font-size:11px; color:var(--text-3); margin-top:4px; "
+                f'line-height:1.5;">{c["detail"]}</div>'
+                f"</td></tr>"
+            )
+        st.markdown(
+            f'<table style="width:100%; border-collapse:collapse; '
+            f"background:linear-gradient(180deg,#0e0e0e 0%,#0a0a0a 100%); "
+            f'border:1px solid var(--border);">'
+            f"<tbody>{''.join(rows_html)}</tbody></table>",
+            unsafe_allow_html=True,
+        )
 
         # --- Footer disclaimer ---
         last_refresh = pd.Timestamp.utcnow().strftime("%H:%M:%S UTC")

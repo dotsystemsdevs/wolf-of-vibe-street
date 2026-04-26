@@ -51,6 +51,7 @@ class Executor:
         initial_cash: float,
         caps: RiskCaps | None = None,
         risk_pct: float = 0.005,
+        trade_mode: str = "paper",
     ):
         self.broker = broker
         self.log = log
@@ -58,6 +59,10 @@ class Executor:
         self.cash = initial_cash
         self.risk_pct = risk_pct
         self.caps = caps
+        # Tagged into every fill's metadata_json so the dashboard + analysis can
+        # filter "real money" vs "paper" rows without ambiguity. See risk.live_gate
+        # for the legal values; defaults to "paper" so existing call sites are safe.
+        self.trade_mode = trade_mode
         self.daily_high_water = initial_cash
         self.weekly_high_water = initial_cash
         self._current_day: int | None = None
@@ -209,7 +214,7 @@ class Executor:
                 price=fill.price,
                 notional=fill.notional,
                 slippage_bps=(fill.price / bar.close - 1.0) * 10_000.0,
-                metadata={"fee": fill.fee},
+                metadata={"fee": fill.fee, "mode": self.trade_mode},
             )
         )
 
@@ -243,7 +248,7 @@ class Executor:
                 notional=fill.notional,
                 rationale=reason,
                 slippage_bps=(1.0 - fill.price / price) * 10_000.0 if price > 0 else 0.0,
-                metadata={"fee": fill.fee},
+                metadata={"fee": fill.fee, "mode": self.trade_mode},
             )
         )
         self._open_stop = None
