@@ -833,9 +833,7 @@ def _render_compare_tab() -> None:
             st.error("Need at least one symbol.")
             return
         entry = strategy_by_label(strategy_label)
-        with st.spinner(
-            f"Backfilling + backtesting {len(symbols)} symbols on {strategy_label}..."
-        ):
+        with st.spinner(f"Backfilling + backtesting {len(symbols)} symbols on {strategy_label}..."):
             try:
                 results = run_comparison(
                     symbols,
@@ -1356,16 +1354,13 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
                     f"or enable the LLM filter."
                 )
             elif (
-                top["symbol"] != live_symbol
-                and top_n > 0
-                and top_exp > 0
-                and live_row is not None
+                top["symbol"] != live_symbol and top_n > 0 and top_exp > 0 and live_row is not None
             ):
                 delta_exp = top_exp - float(live_row["metrics"].get("expectancy", 0.0))
                 if delta_exp > 0:
                     hint_html = (
                         f'<span style="color:var(--accent); font-weight:700;">HINT</span> '
-                        f'<strong>{top["symbol"]}</strong> has '
+                        f"<strong>{top['symbol']}</strong> has "
                         f"${delta_exp:+.2f}/trade higher expectancy than "
                         f"<strong>{live_symbol}</strong> over the last 30d. "
                         f"Switch via <code>TRADERBOT_SYMBOL</code> in <code>.env</code> "

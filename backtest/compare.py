@@ -73,9 +73,7 @@ def strategy_by_id(strategy_id: str) -> StrategyEntry:
     """Look up by snake_case id (used by live loop env var). Raises if not found."""
     if strategy_id not in STRATEGIES:
         known = ", ".join(STRATEGIES.keys())
-        raise ValueError(
-            f"unknown TRADERBOT_STRATEGY={strategy_id!r}. Known: {known}"
-        )
+        raise ValueError(f"unknown TRADERBOT_STRATEGY={strategy_id!r}. Known: {known}")
     return STRATEGIES[strategy_id]
 
 
@@ -224,6 +222,7 @@ def rank_by_expectancy(results: list[SymbolResult]) -> list[SymbolResult]:
     Used by the dashboard's Symbol Expectancy panel to surface "should I be
     trading something else?" in one glance.
     """
+
     def _key(r: SymbolResult) -> tuple[int, float, float]:
         m = r.result.metrics
         n = int(m.get("num_trades", 0))

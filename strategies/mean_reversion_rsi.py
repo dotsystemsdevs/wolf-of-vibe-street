@@ -44,9 +44,7 @@ def generate_signals(
     Causal: every value at row i depends only on rows <= i (P-05).
     """
     if not (0 < oversold < overbought < 100):
-        raise ValueError(
-            f"need 0 < oversold ({oversold}) < overbought ({overbought}) < 100"
-        )
+        raise ValueError(f"need 0 < oversold ({oversold}) < overbought ({overbought}) < 100")
     if stop_atr_mult <= 0 or target_atr_mult <= 0:
         raise ValueError("ATR multipliers must be > 0")
     if df.empty:
