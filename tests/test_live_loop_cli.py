@@ -141,3 +141,41 @@ def test_build_from_env_unknown_broker_raises(
 
     with pytest.raises(ValueError, match="unknown TRADERBOT_BROKER"):
         build_from_env()
+
+
+def test_build_from_env_llm_filter_off_by_default(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Without TRADERBOT_USE_LLM_FILTER, the strategy runs raw."""
+    monkeypatch.setenv("TRADERBOT_LOG_PATH", str(tmp_path / "log.db"))
+    monkeypatch.delenv("TRADERBOT_USE_LLM_FILTER", raising=False)
+
+    _loop, cfg = build_from_env()
+    assert cfg["llm_filter"] == "off"
+
+
+def test_build_from_env_llm_filter_requires_anthropic_key(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Asking for the LLM filter without an API key must fail loudly."""
+    monkeypatch.setenv("TRADERBOT_LOG_PATH", str(tmp_path / "log.db"))
+    monkeypatch.setenv("TRADERBOT_USE_LLM_FILTER", "true")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+    with pytest.raises(RuntimeError, match="ANTHROPIC_API_KEY"):
+        build_from_env()
+
+
+def test_build_from_env_llm_filter_on_with_key_wraps_strategy(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """With both flag + key set, strategy_fn is the wrapped version (different __name__)."""
+    monkeypatch.setenv("TRADERBOT_LOG_PATH", str(tmp_path / "log.db"))
+    monkeypatch.setenv("TRADERBOT_USE_LLM_FILTER", "true")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-fake-key")
+    monkeypatch.setenv("TRADERBOT_LLM_THRESHOLD", "0.5")
+
+    loop, cfg = build_from_env()
+    assert cfg["llm_filter"] == "on (threshold=+0.50)"
+    # Wrapper name carries the prefix.
+    assert "llm_filtered" in loop.strategy_fn.__name__

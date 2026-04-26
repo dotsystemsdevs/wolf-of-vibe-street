@@ -50,6 +50,27 @@ def _build_context(df: pd.DataFrame, idx: int, signal: Signal) -> dict[str, Any]
     return ctx
 
 
+def make_llm_filtered_strategy(
+    base_fn,
+    evaluator: LLMEvaluator,
+    *,
+    threshold: float = 0.3,
+):
+    """Adapt llm_filtered_signals to the (df, *, symbol) → list[Signal] strategy shape.
+
+    Used by workers.live_loop.build_from_env to wire the filter into the live loop
+    when TRADERBOT_USE_LLM_FILTER=true. The base_fn is whatever strategy is
+    currently selected (baseline / mean-reversion); the LLM only ever sees buys.
+    """
+
+    def wrapped(df: pd.DataFrame, *, symbol: str = "BTC/USDT") -> list[Signal]:
+        base = base_fn(df, symbol=symbol)
+        return llm_filtered_signals(base, df, evaluator=evaluator, threshold=threshold)
+
+    wrapped.__name__ = f"llm_filtered({getattr(base_fn, '__name__', 'base')})"
+    return wrapped
+
+
 def llm_filtered_signals(
     base_signals: list[Signal],
     df: pd.DataFrame,

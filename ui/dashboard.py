@@ -47,7 +47,7 @@ from ui.views import (  # noqa: E402
 DEFAULT_DB_PATH = Path("data/decision_log/traderbot.db")
 REFRESH_INTERVAL_S = 30
 # Bump when UI changes — if you do not see this in the header, you are not running this file.
-DASHBOARD_BUILD = "2026-04-26r"
+DASHBOARD_BUILD = "2026-04-26s"
 
 GREEN = "#22c55e"
 RED = "#ef4444"
@@ -2161,6 +2161,102 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
                     f"{CALIBRATION_TRADE_COUNT - cal_count} trades remaining before "
                     f"promotion to full live caps is recommended (S-55)."
                 )
+
+        # --- LLM FILTER --------------------------------------------------------
+        st.divider()
+        with st.expander("LLM FILTER (Claude)", expanded=False):
+            env_llm = env_config.read_env()
+            llm_on = env_llm.get("TRADERBOT_USE_LLM_FILTER", "").strip().lower() == "true"
+            anthropic_key = env_llm.get("ANTHROPIC_API_KEY", "").strip()
+            try:
+                cur_threshold = float(env_llm.get("TRADERBOT_LLM_THRESHOLD", "0.3") or "0.3")
+            except ValueError:
+                cur_threshold = 0.3
+
+            if llm_on and anthropic_key:
+                st.success(f"ON · threshold {cur_threshold:+.2f}")
+            elif llm_on and not anthropic_key:
+                st.error("ON but ANTHROPIC_API_KEY missing — loop will refuse to start")
+            else:
+                st.caption("OFF · raw strategy signals go straight to the executor")
+            st.caption(
+                "When ON, every BUY signal goes through Claude before the executor sees it. "
+                "Rejected buys become HOLD with rejection reason logged. Useful when the "
+                "raw strategy is over-trading (Phase 2 essentials)."
+            )
+            api_key_in = st.text_input(
+                "Anthropic API key",
+                value=anthropic_key,
+                type="password",
+                key="anthropic_api_key_input",
+            )
+            new_threshold = st.slider(
+                "Approval threshold (score in [-1, +1])",
+                min_value=-1.0,
+                max_value=1.0,
+                value=cur_threshold,
+                step=0.05,
+                key="llm_threshold_input",
+            )
+            cb_a, cb_b = st.columns(2)
+            if cb_a.button(
+                "Enable LLM filter",
+                disabled=llm_on or not api_key_in,
+                width="stretch",
+                type="primary",
+            ):
+                updates = {
+                    "TRADERBOT_USE_LLM_FILTER": "true",
+                    "TRADERBOT_LLM_THRESHOLD": str(new_threshold),
+                }
+                if api_key_in and api_key_in != anthropic_key:
+                    updates["ANTHROPIC_API_KEY"] = api_key_in
+                env_config.update_env(updates)
+                st.success("Saved. Stop + start the loop to apply.")
+                st.rerun()
+            if cb_b.button(
+                "Disable LLM filter", disabled=not llm_on, width="stretch", type="secondary"
+            ):
+                env_config.update_env({"TRADERBOT_USE_LLM_FILTER": ""})
+                st.success("Disabled. Stop + start the loop to apply.")
+                st.rerun()
+
+        # --- AUTO-START ON REBOOT ---------------------------------------------
+        st.divider()
+        with st.expander("AUTO-START (launchd)", expanded=False):
+            from tools.launchd import (  # noqa: PLC0415
+                detect_project_root,
+                detect_uv_path,
+                is_installed,
+            )
+            from tools.launchd import (
+                generate as gen_launchd,
+            )
+
+            installed = is_installed()
+            if installed:
+                st.success("Installed — bot will auto-start on reboot.")
+            else:
+                st.warning("Not installed — bot will NOT auto-start after Mac reboot.")
+            setup = gen_launchd(
+                project_root=detect_project_root(),
+                uv_bin=detect_uv_path(),
+            )
+            st.caption(
+                f"Plist label: `{setup.label}` · Project root: `{detect_project_root()}` · "
+                f"uv: `{detect_uv_path()}`. Logs to `{setup.log_path.name}` / "
+                f"`{setup.err_log_path.name}`."
+            )
+            st.markdown("**1. Save the plist:**")
+            st.code(setup.plist_xml, language="xml")
+            st.markdown(
+                f"Save the above as `{setup.plist_path}` (create the directory if "
+                f"it doesn't exist)."
+            )
+            st.markdown("**2. Load it into launchd:**")
+            st.code(setup.install_command, language="bash")
+            st.markdown("**3. To uninstall later:**")
+            st.code(setup.uninstall_command, language="bash")
 
         st.divider()
         st.subheader("EVENT COUNTS")

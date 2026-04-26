@@ -401,6 +401,33 @@ def build_from_env() -> tuple[LiveLoop, dict[str, str]]:
 
     notifier = TelegramNotifier()
 
+    # LLM filter — wraps the base strategy so every BUY signal goes through
+    # Claude before the executor sees it. Rejected buys become HOLD with
+    # the rejection reason in the decision log. Sells/holds pass through
+    # unchanged. Activated by TRADERBOT_USE_LLM_FILTER=true; requires
+    # ANTHROPIC_API_KEY in env (raises with clear error otherwise).
+    use_llm_filter = os.environ.get("TRADERBOT_USE_LLM_FILTER", "").strip().lower() == "true"
+    actual_strategy_fn = strategy_entry.fn
+    llm_filter_label = "off"
+    if use_llm_filter:
+        from agents.llm_evaluator import ClaudeEvaluator  # noqa: PLC0415
+        from strategies.llm_filtered import make_llm_filtered_strategy  # noqa: PLC0415
+
+        if not ClaudeEvaluator.is_configured():
+            raise RuntimeError(
+                "TRADERBOT_USE_LLM_FILTER=true but ANTHROPIC_API_KEY is not set. "
+                "Add your Anthropic API key to .env, or unset the filter flag."
+            )
+        try:
+            llm_threshold = float(os.environ.get("TRADERBOT_LLM_THRESHOLD", "0.3"))
+        except ValueError:
+            llm_threshold = 0.3
+        evaluator = ClaudeEvaluator()
+        actual_strategy_fn = make_llm_filtered_strategy(
+            strategy_entry.fn, evaluator, threshold=llm_threshold
+        )
+        llm_filter_label = f"on (threshold={llm_threshold:+.2f})"
+
     loop = LiveLoop(
         symbol=symbol,
         timeframe=timeframe,
@@ -409,7 +436,7 @@ def build_from_env() -> tuple[LiveLoop, dict[str, str]]:
         poll_interval_s=poll_interval_s,
         notifier=notifier,
         heartbeat_interval_s=heartbeat_s,
-        strategy_fn=strategy_entry.fn,
+        strategy_fn=actual_strategy_fn,
     )
 
     config = {
@@ -423,6 +450,7 @@ def build_from_env() -> tuple[LiveLoop, dict[str, str]]:
         "commission_bps": str(commission_bps),
         "heartbeat_interval_s": str(heartbeat_s),
         "strategy": f"{strategy_entry.label} ({strategy_entry.id})",
+        "llm_filter": llm_filter_label,
         "broker": f"{broker_name} (mode={trade_mode})",
         "telegram": "configured" if notifier.configured else "not configured (silent)",
     }
