@@ -155,3 +155,60 @@ def test_kill_switch_beats_everything_else(tmp_path: Path) -> None:
     )
     d = check_entry(catastrophic_state, 999_999.0, caps)
     assert d.reason == "kill_switch"  # not "daily_drawdown_halt" or anything else
+
+
+# --- live presets ---
+
+
+def test_live_calibration_caps_scale_to_initial_cash() -> None:
+    """For 1000 SEK (~$100): max position $25, daily kill $5. Numbers must follow equity."""
+    from risk.caps import live_calibration_caps
+
+    c100 = live_calibration_caps(initial_cash_usd=100.0)
+    assert c100.max_position_notional_usd == 25.0
+    assert c100.max_total_notional_usd == 25.0
+    assert c100.max_daily_loss_usd == 5.0
+    assert c100.max_concurrent_positions == 1
+
+    c10k = live_calibration_caps(initial_cash_usd=10_000.0)
+    assert c10k.max_position_notional_usd == 2_500.0
+    assert c10k.max_daily_loss_usd == 500.0
+
+
+def test_live_full_caps_are_wider_than_calibration() -> None:
+    """Full live: 50% per position, 100% total notional, 10% daily kill."""
+    from risk.caps import live_calibration_caps, live_full_caps
+
+    cal = live_calibration_caps(initial_cash_usd=100.0)
+    full = live_full_caps(initial_cash_usd=100.0)
+    assert full.max_position_notional_usd > cal.max_position_notional_usd
+    assert full.max_concurrent_positions > cal.max_concurrent_positions
+    assert full.max_daily_loss_usd > cal.max_daily_loss_usd
+    # Still tighter than the (effectively unlimited) paper defaults.
+    assert full.max_daily_loss_usd < float("inf")
+
+
+def test_max_daily_loss_usd_blocks_new_entry(tmp_path: Path) -> None:
+    """Absolute $-loss kill triggers even when % drawdown would still be below cap."""
+    from risk.caps import live_calibration_caps
+
+    caps = live_calibration_caps(initial_cash_usd=100.0)
+    # Start of day equity 100, now down 6 USD = 6% drawdown — but max_daily_loss_usd=$5
+    # should fire FIRST since it's the more conservative cap on this size.
+    state = RiskState(
+        equity_now=94.0,
+        daily_high_water=100.0,
+        weekly_high_water=100.0,
+        open_positions_count=0,
+        open_total_notional_usd=0.0,
+    )
+    d = check_entry(state, intended_notional_usd=10.0, caps=caps)
+    assert d.allow is False
+    assert d.reason == "daily_loss_usd_halt"
+
+
+def test_paper_default_caps_have_no_daily_loss_usd_limit() -> None:
+    """Default RiskCaps must keep max_daily_loss_usd=inf so paper isn't blocked."""
+    from risk.caps import RiskCaps
+
+    assert RiskCaps().max_daily_loss_usd == float("inf")

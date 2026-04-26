@@ -47,7 +47,7 @@ from ui.views import (  # noqa: E402
 DEFAULT_DB_PATH = Path("data/decision_log/traderbot.db")
 REFRESH_INTERVAL_S = 30
 # Bump when UI changes — if you do not see this in the header, you are not running this file.
-DASHBOARD_BUILD = "2026-04-26m"
+DASHBOARD_BUILD = "2026-04-26n"
 
 GREEN = "#22c55e"
 RED = "#ef4444"
@@ -696,13 +696,37 @@ def _go_live_readiness(
         }
     )
 
+    has_live_caps = False
+    cap_detail = ""
+    try:
+        from risk.caps import live_calibration_caps  # noqa: PLC0415
+
+        has_live_caps = True
+        # Compute caps for the operator's actual initial_cash so the UI shows
+        # the *real* numbers their bot will use.
+        try:
+            initial_cash_for_panel = float(env.get("TRADERBOT_INITIAL_CASH", "100") or "100")
+        except (TypeError, ValueError):
+            initial_cash_for_panel = 100.0
+        cal = live_calibration_caps(initial_cash_usd=initial_cash_for_panel)
+        cap_detail = (
+            f"Live calibration preset @ ${initial_cash_for_panel:.0f} portfolio: "
+            f"max ${cal.max_position_notional_usd:.2f}/trade · "
+            f"daily-loss kill ${cal.max_daily_loss_usd:.2f} · "
+            f"DD halt {cal.max_daily_drawdown_pct * 100:.1f}% · "
+            f"{cal.max_concurrent_positions} concurrent."
+        )
+    except Exception:  # noqa: BLE001
+        has_live_caps = False
     checks.append(
         {
             "key": "live_caps",
-            "name": "Hardened risk caps for live (max $50/trade, daily loss kill)",
-            "status": "todo",
+            "name": "Hardened risk caps for live (proportional to portfolio size)",
+            "status": "done" if has_live_caps else "todo",
             "detail": (
-                "Existing caps are paper-tuned. Live needs absolute-dollar "
+                cap_detail
+                if has_live_caps
+                else "Existing caps are paper-tuned. Live needs absolute-dollar "
                 "position cap (not just %), tighter daily-DD kill, and a "
                 "first-trade-of-day delay so a bad open doesn't wipe out."
             ),

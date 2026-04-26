@@ -27,7 +27,68 @@ class RiskCaps:
     max_total_notional_usd: float = 100_000.0
     max_daily_drawdown_pct: float = 0.03
     max_weekly_drawdown_pct: float = 0.07
+    # Absolute-dollar daily-loss kill, separate from the %-based DD halt. The
+    # %-cap can be too generous on small accounts (2% of $100 = $2, fine; 2%
+    # of $10k = $200, hurts). The $-cap stops bleeding regardless of equity.
+    # Default inf = paper mode; live presets tighten it to small numbers.
+    max_daily_loss_usd: float = float("inf")
     kill_switch_path: Path = DEFAULT_KILL_SWITCH_PATH
+
+
+def live_calibration_caps(
+    initial_cash_usd: float = 100.0,
+    *,
+    kill_switch_path: Path = DEFAULT_KILL_SWITCH_PATH,
+) -> RiskCaps:
+    """Hardened caps for the live-calibration phase (S-55: first 30 trades).
+
+    Sized as fractions of `initial_cash_usd` so the same preset works whether
+    the operator funds with 1000 SEK (~$100), $500, or $10k. Defaults match
+    the 1000 SEK / 30-day "what does my AI bot do?" journey: tight enough
+    that a single bad fill can't blow the account, loose enough to let real
+    edge become visible.
+
+      - max_position_notional_usd: 25% of equity — meaningful position size
+        without YOLO. On $100: max $25 / trade.
+      - max_total_notional_usd: same as per-position (1 concurrent).
+      - max_concurrent_positions: 1 (clean attribution; no portfolio drag).
+      - max_daily_drawdown_pct: 3% — same as paper; small accounts already
+        get squeezed by absolute $-cap below.
+      - max_weekly_drawdown_pct: 7%.
+      - max_daily_loss_usd: 5% of equity — absolute floor in dollars. On
+        $100 = $5 daily kill, on $10k = $500.
+    """
+    return RiskCaps(
+        max_concurrent_positions=1,
+        max_position_notional_usd=initial_cash_usd * 0.25,
+        max_total_notional_usd=initial_cash_usd * 0.25,
+        max_daily_drawdown_pct=0.03,
+        max_weekly_drawdown_pct=0.07,
+        max_daily_loss_usd=initial_cash_usd * 0.05,
+        kill_switch_path=kill_switch_path,
+    )
+
+
+def live_full_caps(
+    initial_cash_usd: float = 100.0,
+    *,
+    kill_switch_path: Path = DEFAULT_KILL_SWITCH_PATH,
+) -> RiskCaps:
+    """Post-calibration caps — promoted from calibration after the first 30 trades.
+
+    Wider than calibration, still tighter than paper. Numbers are conservative
+    starting points; revisit after ~100 live trades give actual fill-quality
+    data. On $100 default: 50% per-position, $10 daily kill.
+    """
+    return RiskCaps(
+        max_concurrent_positions=2,
+        max_position_notional_usd=initial_cash_usd * 0.50,
+        max_total_notional_usd=initial_cash_usd * 1.00,
+        max_daily_drawdown_pct=0.025,
+        max_weekly_drawdown_pct=0.06,
+        max_daily_loss_usd=initial_cash_usd * 0.10,
+        kill_switch_path=kill_switch_path,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,7 +137,10 @@ def check_entry(
         return RiskDecision(False, "kill_switch")
 
     if state.daily_high_water > 0:
-        daily_dd = (state.daily_high_water - state.equity_now) / state.daily_high_water
+        daily_loss_usd = state.daily_high_water - state.equity_now
+        if daily_loss_usd >= caps.max_daily_loss_usd:
+            return RiskDecision(False, "daily_loss_usd_halt")
+        daily_dd = daily_loss_usd / state.daily_high_water
         if daily_dd >= caps.max_daily_drawdown_pct:
             return RiskDecision(False, "daily_drawdown_halt")
 

@@ -269,7 +269,20 @@ def build_from_env() -> tuple[LiveLoop, dict[str, str]]:
     else:
         raise ValueError(f"unknown TRADERBOT_BROKER={broker_name!r}. Known: 'paper', 'kraken'")
     log = DecisionLog(log_path)
-    caps = RiskCaps()
+    # Risk-cap selection by trade_mode:
+    #   paper             → default RiskCaps (loose; paper can't lose real money)
+    #   live_calibration  → live_calibration_caps(initial_cash) — first 30 trades
+    #   live              → live_full_caps(initial_cash) — post-calibration
+    if trade_mode == LIVE_CALIBRATION_MODE:
+        from risk.caps import live_calibration_caps  # noqa: PLC0415
+
+        caps = live_calibration_caps(initial_cash_usd=initial_cash)
+    elif trade_mode == "live":  # full-live promotion (manual operator action)
+        from risk.caps import live_full_caps  # noqa: PLC0415
+
+        caps = live_full_caps(initial_cash_usd=initial_cash)
+    else:
+        caps = RiskCaps()
     executor = Executor(
         broker=broker,
         log=log,
