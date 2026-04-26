@@ -47,7 +47,7 @@ from ui.views import (  # noqa: E402
 DEFAULT_DB_PATH = Path("data/decision_log/traderbot.db")
 REFRESH_INTERVAL_S = 30
 # Bump when UI changes — if you do not see this in the header, you are not running this file.
-DASHBOARD_BUILD = "2026-04-26l"
+DASHBOARD_BUILD = "2026-04-26m"
 
 GREEN = "#22c55e"
 RED = "#ef4444"
@@ -629,14 +629,37 @@ def _go_live_readiness(
         }
     )
 
+    has_human_gate = False
+    gate_state_str = ""
+    try:
+        import importlib.util  # noqa: PLC0415
+
+        has_human_gate = importlib.util.find_spec("risk.human_gate") is not None
+    except Exception:  # noqa: BLE001
+        has_human_gate = False
+    if has_human_gate:
+        from risk.human_gate import DEFAULT_TOKEN_PATH, get_session_state  # noqa: PLC0415
+
+        gs = get_session_state(DEFAULT_TOKEN_PATH)
+        if gs.is_active:
+            remaining_h = (gs.seconds_remaining or 0) // 3600
+            gate_state_str = f"ACTIVE — {remaining_h}h remaining"
+            human_gate_status = "done"
+        else:
+            gate_state_str = "INACTIVE — live broker refuses to start"
+            human_gate_status = "done"  # infrastructure exists, just not currently engaged
+    else:
+        human_gate_status = "todo"
+        gate_state_str = "not built"
     checks.append(
         {
             "key": "human_gate",
             "name": "Per-session human 'go live' gate",
-            "status": "todo",
+            "status": human_gate_status,
             "detail": (
-                "Sidebar widget where you type LIVE to confirm this session's "
-                "real-money trading. Distinct from the env flag."
+                f"Sidebar widget — type LIVE to activate, expires after 24h. "
+                f"Current state: {gate_state_str}. Required for non-dry-run "
+                f"Kraken broker; orthogonal to the env flag."
             ),
         }
     )
@@ -1770,6 +1793,47 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
                 kill_switch_path.touch()
                 st.rerun()
         st.caption(f"File: `{kill_switch_path}`")
+
+        st.divider()
+        st.subheader("LIVE SESSION GATE")
+        from risk.human_gate import (  # noqa: PLC0415
+            DEFAULT_TOKEN_PATH,
+            LIVE_CONFIRMATION_PHRASE,
+            MAX_SESSION_AGE_S,
+            activate_live_session,
+            deactivate_live_session,
+            get_session_state,
+        )
+
+        gate_state = get_session_state(DEFAULT_TOKEN_PATH)
+        if gate_state.is_active:
+            remaining_h = (gate_state.seconds_remaining or 0) // 3600
+            remaining_m = ((gate_state.seconds_remaining or 0) % 3600) // 60
+            st.success(f"ACTIVE · expires in {remaining_h}h {remaining_m:02d}m")
+            if st.button("Deactivate session", type="secondary", width="stretch"):
+                deactivate_live_session(DEFAULT_TOKEN_PATH)
+                st.rerun()
+        else:
+            st.warning("INACTIVE · live broker refuses to start without this")
+            confirm_input = st.text_input(
+                f"Type '{LIVE_CONFIRMATION_PHRASE}' to confirm this session",
+                key="live_session_confirm",
+                placeholder=LIVE_CONFIRMATION_PHRASE,
+            )
+            can_activate = confirm_input == LIVE_CONFIRMATION_PHRASE
+            if st.button(
+                "Activate live session",
+                type="primary",
+                width="stretch",
+                disabled=not can_activate,
+            ):
+                try:
+                    activate_live_session(confirm_input, DEFAULT_TOKEN_PATH)
+                    st.session_state.pop("live_session_confirm", None)
+                    st.rerun()
+                except ValueError as e:
+                    st.error(f"Activation failed: {e}")
+        st.caption(f"Token: `{DEFAULT_TOKEN_PATH}` · expires after {MAX_SESSION_AGE_S // 3600}h")
 
         st.divider()
         with st.expander("TELEGRAM ALERTS", expanded=False):

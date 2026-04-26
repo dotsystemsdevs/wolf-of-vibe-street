@@ -246,9 +246,18 @@ def build_from_env() -> tuple[LiveLoop, dict[str, str]]:
         from execution.ccxt_kraken import KrakenBroker  # noqa: PLC0415  — defer import
 
         kraken_dry_run = os.environ.get("KRAKEN_DRY_RUN", "true").strip().lower() == "true"
+
+        # Real-money path needs BOTH the env flag (already checked) AND a fresh
+        # human-gate session token. Dry-run is exempt — useful for testing the
+        # Kraken adapter wiring without needing to type LIVE every 24h.
+        if not kraken_dry_run:
+            from risk.human_gate import assert_live_session_active  # noqa: PLC0415
+
+            assert_live_session_active()
+
         broker = KrakenBroker(dry_run=kraken_dry_run)
-        # All real-broker fills get tagged as calibration until #4 (per-session
-        # human gate) explicitly promotes the bot to full live mode.
+        # All real-broker fills get tagged as calibration. Promotion to full
+        # 'live' is a manual operator action after the first 30 trades (S-55).
         trade_mode = LIVE_CALIBRATION_MODE
     elif broker_name == "paper":
         broker = PaperBroker(
