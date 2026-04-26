@@ -47,9 +47,9 @@ from ui.views import (  # noqa: E402
 DEFAULT_DB_PATH = Path("data/decision_log/traderbot.db")
 REFRESH_INTERVAL_S = 30
 # Bump when UI changes — if you do not see this in the header, you are not running this file.
-DASHBOARD_BUILD = "2026-04-26c"
+DASHBOARD_BUILD = "2026-04-26d"
 
-# Curated in knowledge.md §9.5 — not runtime deps; for operator + IDE context
+# Curated in knowledge.md (section 9.5) — not runtime deps; for operator + IDE context
 _EXTERNAL_RESEARCH_MD = """
 - [Vibe-Trading (HKUDS)](https://github.com/HKUDS/Vibe-Trading)
 - [TradingAgents](https://tradingagents-ai.github.io) · [code](https://github.com/tauricresearch/tradingagents)
@@ -60,6 +60,28 @@ _EXTERNAL_RESEARCH_MD = """
 - [ai-agents-for-trading (Moon-style)](https://github.com/MrFadiAi/ai-agents-for-trading)
 - [Harvard Algorithmic + AI (RBI)](https://github.com/moondevonyt/Harvard-Algorithmic-Trading-with-AI)
 """
+
+# Admin / dashboard UI patterns (GitHub) — design inspiration only, not app dependencies
+_UI_DASHBOARD_IDEAS_MD = """
+- [GitHub topic: admin-dashboard-ui](https://github.com/topics/admin-dashboard-ui)
+- [GitHub topic: admin-dashboard](https://github.com/topics/admin-dashboard)
+- [Nuxt dashboard template (Nuxt UI)](https://github.com/nuxt-ui-templates/dashboard)
+- [GitHub topic: dashboard](https://github.com/topics/dashboard)
+- [gethomepage — self-hosted start page / service board](https://github.com/gethomepage/homepage)
+- [Awesome Dashboard UI Kit (Bootstrap / Htmlstream)](https://github.com/htmlstreamofficial/awesome-dashboard-ui-kit)
+"""
+
+_SIDEBAR_SETTINGS_CHOICES = [
+    "Overview",
+    "Troubleshoot (cache, build, port)",
+    "Reference: AI-trading repos",
+    "Reference: UI & dashboard ideas",
+    "Telegram alerts",
+    "Kraken API keys",
+    "LLM filter (Claude)",
+    "Auto-start (launchd)",
+    "Log: reset & backup",
+]
 
 GREEN = "#22c55e"
 RED = "#ef4444"
@@ -1719,25 +1741,10 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
 
     with st.sidebar:
         st.caption(
-            f"Operator panel · start/stop loop, risk gates, alerts. "
-            f"Main area refreshes ~{REFRESH_INTERVAL_S}s while this tab is open."
+            f"**RUN** / **RISK** / **GO LIVE** = day-to-day. "
+            f"**SETTINGS** = keys, log tools, and links. Refreshes ~{REFRESH_INTERVAL_S}s."
         )
-        with st.expander("Ser du inte ändringar? (felsök)", expanded=False):
-            st.markdown(
-                f"- **Build som ska synas i headern:** `{DASHBOARD_BUILD}`\n"
-                f"- **Projektrot:** `{_PROJECT_ROOT}`\n"
-                "- Kör alltid från mappen **`traderbot`**:  \n"
-                "  `cd …/traderbot && uv run streamlit run ui/dashboard.py`\n"
-                "- Stoppa gammal Streamlit (annars laddas gammal kod):  \n"
-                "  `pkill -f 'streamlit run ui/dashboard'` eller byt port:  \n"
-                "  `TRADERBOT_PORT=8502 uv run streamlit run ui/dashboard.py --server.port 8502`\n"
-                "- **Hård omladdning i webbläsaren:** Cmd+Shift+R (Mac) / Ctrl+Shift+R (Win)\n"
-                "- Rensa cache: Streamlit-menyn **⋮ → Clear cache** (om du ser den)."
-            )
-        with st.expander("Referens-repos (AI-trading)", expanded=False):
-            st.caption("Samma lista som i `knowledge.md` §9.5 — inspiration, inga beroenden.")
-            st.markdown(_EXTERNAL_RESEARCH_MD)
-        st.subheader("LIVE LOOP")
+        st.subheader("RUN")
         loop_status = loop_control.status()
         if loop_status.running:
             uptime_s = (
@@ -1788,63 +1795,10 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
         )
         st.caption(f"Logs: `{loop_status.log_path}`")
 
-        with st.expander("RESET FOR FRESH SOAK", expanded=False):
-            st.caption(
-                "Wipes the decision log so the dashboard shows ONLY data from this point forward. "
-                "Old log is moved to `data/decision_log/backups/` (you can always restore it). "
-                "Stops the loop first; you'll need to start it again after."
-            )
-            confirm = st.checkbox("Yes, I want to start with a clean log", key="reset_confirm")
-            if st.button(
-                "Reset decision log",
-                type="secondary",
-                width="stretch",
-                disabled=not confirm,
-            ):
-                if loop_control.status().running:
-                    with st.spinner("Stopping loop..."):
-                        loop_control.stop()
-                backup = loop_control.reset_decision_log(log_path)
-                if backup:
-                    st.success(f"Log reset. Backup: `{backup}`")
-                else:
-                    st.info("Nothing to reset — log was already empty.")
-                # Clear the checkbox state so it has to be re-checked next time.
-                st.session_state.pop("reset_confirm", None)
-                st.rerun()
-
-        with st.expander("DECISION LOG BACKUP", expanded=False):
-            from tools.backup import (  # noqa: PLC0415
-                DEFAULT_BACKUP_DIR,
-                backup_decision_log,
-                list_backups,
-            )
-
-            existing = list_backups(DEFAULT_BACKUP_DIR)
-            if existing:
-                most_recent = existing[0]
-                most_recent_age_min = int(
-                    (pd.Timestamp.now("UTC").timestamp() - most_recent.stat().st_mtime) / 60
-                )
-                st.caption(
-                    f"Latest: `{most_recent.name}` · {most_recent_age_min} min ago · "
-                    f"{len(existing)} backups kept (auto-prune at 30)."
-                )
-            else:
-                st.caption("No backups yet. Auto-runs on every loop start.")
-            if st.button("Backup now", width="stretch"):
-                with st.spinner("Backing up decision log..."):
-                    res = backup_decision_log(log_path)
-                if res.ok and res.backup_path is not None:
-                    st.success(f"Saved: `{res.backup_path.name}`")
-                    if res.pruned_paths:
-                        st.caption(f"Pruned {len(res.pruned_paths)} old backup(s).")
-                else:
-                    st.warning(f"Skipped: {res.skipped_reason}")
-                st.rerun()
-
         st.divider()
-        st.subheader("KILL SWITCH")
+        st.subheader("RISK")
+        st.caption("Stop-loss at the file/token layer before Kraken sees an order.")
+        st.markdown("**Kill switch**")
         if kill_switch_active(kill_switch_path):
             st.error("ACTIVE — bot is paused")
             if st.button("Disable kill switch", type="primary", width="stretch"):
@@ -1859,8 +1813,7 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
                 st.rerun()
         st.caption(f"File: `{kill_switch_path}`")
 
-        st.divider()
-        st.subheader("LIVE SESSION GATE")
+        st.markdown("**Live session**")
         from risk.human_gate import (  # noqa: PLC0415
             DEFAULT_TOKEN_PATH,
             LIVE_CONFIRMATION_PHRASE,
@@ -1899,73 +1852,6 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
                 except ValueError as e:
                     st.error(f"Activation failed: {e}")
         st.caption(f"Token: `{DEFAULT_TOKEN_PATH}` · expires after {MAX_SESSION_AGE_S // 3600}h")
-
-        st.divider()
-        with st.expander("TELEGRAM ALERTS", expanded=False):
-            env = env_config.read_env()
-            current_token = env.get("TELEGRAM_BOT_TOKEN", "")
-            current_chat = env.get("TELEGRAM_CHAT_ID", "")
-            configured = bool(current_token and current_chat)
-            if configured:
-                st.success("Configured ✓")
-            else:
-                st.warning("Not configured")
-            st.caption(
-                "How to set up: write to @BotFather on Telegram → /newbot → copy the token. "
-                "Get your chat ID by writing to @userinfobot. Paste both below."
-            )
-            token_in = st.text_input(
-                "Bot token", value=current_token, type="password", key="tg_token"
-            )
-            chat_in = st.text_input("Chat ID", value=current_chat, key="tg_chat")
-            both = bool(token_in and chat_in)
-
-            cb1, cb2 = st.columns(2)
-            if cb1.button("Send test", disabled=not both, width="stretch"):
-                try:
-                    notifier = TelegramNotifier(token=token_in, chat_id=chat_in)
-                    notifier.notify(
-                        "INFO",
-                        "Test from traderbot",
-                        "If you see this in Telegram, alerts are wired correctly.",
-                    )
-                    st.success("Test message sent — check your Telegram.")
-                except Exception as e:
-                    st.error(f"Failed: {type(e).__name__}: {e}")
-            if cb2.button("Save to .env", disabled=not both, type="primary", width="stretch"):
-                env_config.update_env({"TELEGRAM_BOT_TOKEN": token_in, "TELEGRAM_CHAT_ID": chat_in})
-                st.success("Saved. Stop + start the loop to pick up the new values.")
-
-        # --- KRAKEN API KEYS --------------------------------------------------
-        st.divider()
-        with st.expander("KRAKEN API KEYS", expanded=False):
-            env_kr = env_config.read_env()
-            cur_key = env_kr.get("KRAKEN_API_KEY", "")
-            cur_secret = env_kr.get("KRAKEN_API_SECRET", "")
-            kr_configured = bool(cur_key and cur_secret)
-            if kr_configured:
-                st.success("Configured ✓")
-            else:
-                st.warning("Not configured")
-            st.caption(
-                "Generate at kraken.com → Settings → API → Create key. "
-                "Permissions: Query Funds, Query Open Orders, Query Closed Orders, "
-                "Modify Orders, Cancel/Close Orders. Do NOT enable Withdraw Funds."
-            )
-            kr_key_in = st.text_input(
-                "API key", value=cur_key, type="password", key="kraken_api_key"
-            )
-            kr_secret_in = st.text_input(
-                "API secret", value=cur_secret, type="password", key="kraken_api_secret"
-            )
-            kr_both = bool(kr_key_in and kr_secret_in)
-            if st.button(
-                "Save Kraken keys to .env", disabled=not kr_both, type="primary", width="stretch"
-            ):
-                env_config.update_env(
-                    {"KRAKEN_API_KEY": kr_key_in, "KRAKEN_API_SECRET": kr_secret_in}
-                )
-                st.success("Saved. Stop + start the loop to pick up the new values.")
 
         # --- GO LIVE WORKFLOW -------------------------------------------------
         # The flip from paper to live is a 4-checkbox confirmation, not a
@@ -2038,7 +1924,7 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
                 f"LIVE_TRADING=true, KRAKEN_DRY_RUN=true (real orders gated separately)."
             )
             confirm_paper = st.checkbox(
-                "I have configured Kraken API keys above (or I'm using dry-run only)",
+                "I have configured Kraken API keys in Settings (or I'm using dry-run only)",
                 key="go_live_confirm_keys",
             )
             confirm_caps = st.checkbox(
@@ -2047,7 +1933,7 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
                 key="go_live_confirm_caps",
             )
             confirm_session = st.checkbox(
-                "Live session gate is active (typed LIVE in sidebar above)",
+                "Live session gate is active (typed LIVE under RISK above)",
                 key="go_live_confirm_session",
             )
             confirm_soak = st.checkbox(
@@ -2119,7 +2005,7 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
                 else:
                     st.caption(
                         "Promoting writes `TRADERBOT_TRADE_MODE=live` to `.env` and widens risk "
-                        "caps on the **next** loop start (see `docs/GO_LIVE.md` § Phase 5)."
+                        "caps on the **next** loop start (see `docs/GO_LIVE.md`, Phase 5)."
                     )
                     promo_ok = st.checkbox(
                         "I understand full-live caps: up to 50% per position, 10% daily loss, "
@@ -2155,9 +2041,111 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
                     f"promotion to full live caps is recommended (S-55)."
                 )
 
-        # --- LLM FILTER --------------------------------------------------------
         st.divider()
-        with st.expander("LLM FILTER (Claude)", expanded=False):
+        st.subheader("SETTINGS")
+        st.caption("Integrations, log tools, and reference links — pick one section.")
+        _settings_tab = st.selectbox(
+            "Settings section",
+            _SIDEBAR_SETTINGS_CHOICES,
+            key="sidebar_settings_section",
+            label_visibility="collapsed",
+        )
+
+        if _settings_tab == "Overview":
+            st.markdown(
+                f"- **Build** in the main header should read: `{DASHBOARD_BUILD}`\n"
+                f"- **Project root:** `{_PROJECT_ROOT}`\n"
+                "- Most keys are in **`.env`**. After saving below, **Stop** then **Start** "
+                "the live loop to apply.\n"
+                "- **RUN** / **RISK** / **GO LIVE** above = day-to-day control; this panel "
+                "is everything else."
+            )
+        elif _settings_tab == "Troubleshoot (cache, build, port)":
+            st.markdown(
+                f"- **Build som ska synas i headern:** `{DASHBOARD_BUILD}`\n"
+                f"- **Projektrot:** `{_PROJECT_ROOT}`\n"
+                "- Kör alltid från mappen **`traderbot`**:  \n"
+                "  `cd …/traderbot && uv run streamlit run ui/dashboard.py`\n"
+                "- Stoppa gammal Streamlit (annars laddas gammal kod):  \n"
+                "  `pkill -f 'streamlit run ui/dashboard'` eller byt port:  \n"
+                "  `TRADERBOT_PORT=8502 uv run streamlit run ui/dashboard.py --server.port 8502`\n"
+                "- **Hård omladdning i webbläsaren:** Cmd+Shift+R (Mac) / Ctrl+Shift+R (Win)\n"
+                "- Rensa cache: Streamlit-menyn **⋮ → Clear cache** (om du ser den)."
+            )
+        elif _settings_tab == "Reference: AI-trading repos":
+            st.caption(
+                "Samma lista som i `knowledge.md` (avsnitt 9.5) — inspiration, inga beroenden."
+            )
+            st.markdown(_EXTERNAL_RESEARCH_MD)
+        elif _settings_tab == "Reference: UI & dashboard ideas":
+            st.caption(
+                "Admin- och dashboardmönster på GitHub — idéer till layout, **inte** nya "
+                "beroenden. Den här appen är fortfarande Streamlit + Python."
+            )
+            st.markdown(_UI_DASHBOARD_IDEAS_MD)
+        elif _settings_tab == "Telegram alerts":
+            env = env_config.read_env()
+            current_token = env.get("TELEGRAM_BOT_TOKEN", "")
+            current_chat = env.get("TELEGRAM_CHAT_ID", "")
+            configured = bool(current_token and current_chat)
+            if configured:
+                st.success("Configured ✓")
+            else:
+                st.warning("Not configured")
+            st.caption(
+                "How to set up: write to @BotFather on Telegram → /newbot → copy the token. "
+                "Get your chat ID by writing to @userinfobot. Paste both below."
+            )
+            token_in = st.text_input(
+                "Bot token", value=current_token, type="password", key="tg_token"
+            )
+            chat_in = st.text_input("Chat ID", value=current_chat, key="tg_chat")
+            both = bool(token_in and chat_in)
+
+            cb1, cb2 = st.columns(2)
+            if cb1.button("Send test", disabled=not both, width="stretch"):
+                try:
+                    notifier = TelegramNotifier(token=token_in, chat_id=chat_in)
+                    notifier.notify(
+                        "INFO",
+                        "Test from traderbot",
+                        "If you see this in Telegram, alerts are wired correctly.",
+                    )
+                    st.success("Test message sent — check your Telegram.")
+                except Exception as e:
+                    st.error(f"Failed: {type(e).__name__}: {e}")
+            if cb2.button("Save to .env", disabled=not both, type="primary", width="stretch"):
+                env_config.update_env({"TELEGRAM_BOT_TOKEN": token_in, "TELEGRAM_CHAT_ID": chat_in})
+                st.success("Saved. Stop + start the loop to pick up the new values.")
+        elif _settings_tab == "Kraken API keys":
+            env_kr = env_config.read_env()
+            cur_key = env_kr.get("KRAKEN_API_KEY", "")
+            cur_secret = env_kr.get("KRAKEN_API_SECRET", "")
+            kr_configured = bool(cur_key and cur_secret)
+            if kr_configured:
+                st.success("Configured ✓")
+            else:
+                st.warning("Not configured")
+            st.caption(
+                "Generate at kraken.com → Settings → API → Create key. "
+                "Permissions: Query Funds, Query Open Orders, Query Closed Orders, "
+                "Modify Orders, Cancel/Close Orders. Do NOT enable Withdraw Funds."
+            )
+            kr_key_in = st.text_input(
+                "API key", value=cur_key, type="password", key="kraken_api_key"
+            )
+            kr_secret_in = st.text_input(
+                "API secret", value=cur_secret, type="password", key="kraken_api_secret"
+            )
+            kr_both = bool(kr_key_in and kr_secret_in)
+            if st.button(
+                "Save Kraken keys to .env", disabled=not kr_both, type="primary", width="stretch"
+            ):
+                env_config.update_env(
+                    {"KRAKEN_API_KEY": kr_key_in, "KRAKEN_API_SECRET": kr_secret_in}
+                )
+                st.success("Saved. Stop + start the loop to pick up the new values.")
+        elif _settings_tab == "LLM filter (Claude)":
             env_llm = env_config.read_env()
             llm_on = env_llm.get("TRADERBOT_USE_LLM_FILTER", "").strip().lower() == "true"
             anthropic_key = env_llm.get("ANTHROPIC_API_KEY", "").strip()
@@ -2213,10 +2201,7 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
                 env_config.update_env({"TRADERBOT_USE_LLM_FILTER": ""})
                 st.success("Disabled. Stop + start the loop to apply.")
                 st.rerun()
-
-        # --- AUTO-START ON REBOOT ---------------------------------------------
-        st.divider()
-        with st.expander("AUTO-START (launchd)", expanded=False):
+        elif _settings_tab == "Auto-start (launchd)":
             from tools.launchd import (  # noqa: PLC0415
                 detect_project_root,
                 detect_uv_path,
@@ -2250,9 +2235,63 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
             st.code(setup.install_command, language="bash")
             st.markdown("**3. To uninstall later:**")
             st.code(setup.uninstall_command, language="bash")
+        elif _settings_tab == "Log: reset & backup":
+            st.caption("Destructive: stops the loop before reset. Backup is a snapshot of the DB.")
+            st.markdown("**Fresh soak (reset log)**")
+            st.caption(
+                "Wipes the decision log so the dashboard shows ONLY data from this point forward. "
+                "Old log is moved to `data/decision_log/backups/`. Stops the loop first."
+            )
+            confirm = st.checkbox("Yes, I want to start with a clean log", key="reset_confirm")
+            if st.button(
+                "Reset decision log",
+                type="secondary",
+                width="stretch",
+                disabled=not confirm,
+            ):
+                if loop_control.status().running:
+                    with st.spinner("Stopping loop..."):
+                        loop_control.stop()
+                backup = loop_control.reset_decision_log(log_path)
+                if backup:
+                    st.success(f"Log reset. Backup: `{backup}`")
+                else:
+                    st.info("Nothing to reset — log was already empty.")
+                st.session_state.pop("reset_confirm", None)
+                st.rerun()
+
+            st.markdown("**Backup**")
+            from tools.backup import (  # noqa: PLC0415
+                DEFAULT_BACKUP_DIR,
+                backup_decision_log,
+                list_backups,
+            )
+
+            existing = list_backups(DEFAULT_BACKUP_DIR)
+            if existing:
+                most_recent = existing[0]
+                most_recent_age_min = int(
+                    (pd.Timestamp.now("UTC").timestamp() - most_recent.stat().st_mtime) / 60
+                )
+                st.caption(
+                    f"Latest: `{most_recent.name}` · {most_recent_age_min} min ago · "
+                    f"{len(existing)} backups kept (auto-prune at 30)."
+                )
+            else:
+                st.caption("No backups yet. Auto-runs on every loop start.")
+            if st.button("Backup now", width="stretch"):
+                with st.spinner("Backing up decision log..."):
+                    res = backup_decision_log(log_path)
+                if res.ok and res.backup_path is not None:
+                    st.success(f"Saved: `{res.backup_path.name}`")
+                    if res.pruned_paths:
+                        st.caption(f"Pruned {len(res.pruned_paths)} old backup(s).")
+                else:
+                    st.warning(f"Skipped: {res.skipped_reason}")
+                st.rerun()
 
         st.divider()
-        st.subheader("EVENT COUNTS")
+        st.subheader("AT A GLANCE")
         for k, v in sorted(event_counts(rows).items()):
             st.markdown(
                 f'<div style="display:flex; justify-content:space-between; font-size:12px;">'
