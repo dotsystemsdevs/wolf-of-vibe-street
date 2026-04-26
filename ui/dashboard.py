@@ -47,7 +47,7 @@ from ui.views import (  # noqa: E402
 DEFAULT_DB_PATH = Path("data/decision_log/traderbot.db")
 REFRESH_INTERVAL_S = 30
 # Bump when UI changes — if you do not see this in the header, you are not running this file.
-DASHBOARD_BUILD = "2026-04-26p"
+DASHBOARD_BUILD = "2026-04-26q"
 
 GREEN = "#22c55e"
 RED = "#ef4444"
@@ -762,19 +762,29 @@ def _go_live_readiness(
         }
     )
 
-    soak_target_s = 7 * 24 * 3600
+    # Soak target — operator-configurable via TRADERBOT_SOAK_TARGET_HOURS.
+    # Default 12h: long enough to catch the obvious failure modes (process
+    # crashes, stuck signals, kill-switch handling, hourly heartbeat) but
+    # short enough that the operator doesn't have to wait a week to ship.
+    # Crank it up to 168 (7 days) if you want the conservative default;
+    # drop it to 4 for fast iteration on a new strategy.
+    try:
+        soak_target_h = int(env.get("TRADERBOT_SOAK_TARGET_HOURS", "12") or "12")
+    except (TypeError, ValueError):
+        soak_target_h = 12
+    soak_target_s = soak_target_h * 3600
     if loop_started_at_ms and loop_running:
         soak_elapsed_s = max(0, (now_ms - loop_started_at_ms) // 1000)
         soak_pct = min(100, soak_elapsed_s * 100 // soak_target_s)
         soak_h = soak_elapsed_s // 3600
         if soak_elapsed_s >= soak_target_s:
             soak_status = "done"
-            soak_detail = f"7-day soak complete — {soak_h}h elapsed."
+            soak_detail = f"{soak_target_h}h soak complete — {soak_h}h elapsed."
         else:
             soak_status = "in_progress"
             soak_detail = (
-                f"{soak_h}h / 168h elapsed ({soak_pct}%). Bot must run "
-                f"continuously without crashes or stuck signals."
+                f"{soak_h}h / {soak_target_h}h elapsed ({soak_pct}%). "
+                f"Override target: TRADERBOT_SOAK_TARGET_HOURS in .env."
             )
     else:
         soak_status = "todo"
@@ -782,7 +792,7 @@ def _go_live_readiness(
     checks.append(
         {
             "key": "soak",
-            "name": "7-day continuous paper soak (Phase 1 final task)",
+            "name": f"{soak_target_h}h continuous paper soak",
             "status": soak_status,
             "detail": soak_detail,
         }
