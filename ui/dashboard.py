@@ -47,7 +47,7 @@ from ui.views import (  # noqa: E402
 DEFAULT_DB_PATH = Path("data/decision_log/traderbot.db")
 REFRESH_INTERVAL_S = 30
 # Bump when UI changes — if you do not see this in the header, you are not running this file.
-DASHBOARD_BUILD = "2026-04-26o"
+DASHBOARD_BUILD = "2026-04-26p"
 
 GREEN = "#22c55e"
 RED = "#ef4444"
@@ -810,6 +810,30 @@ def _go_live_readiness(
     )
 
     return checks
+
+
+def _live_calibration_fill_count(rows: list[dict]) -> int:
+    """How many fills are tagged mode='live_calibration' in the decision log.
+
+    Used by the calibration→live promotion gate (S-55: first 30 trades are
+    calibration, then promote). Reads metadata_json on each order_filled row.
+    """
+    import json  # noqa: PLC0415
+
+    count = 0
+    for r in rows:
+        if r["event_type"] != "order_filled":
+            continue
+        raw = r.get("metadata_json")
+        if not raw:
+            continue
+        try:
+            meta = json.loads(raw)
+        except (TypeError, ValueError):
+            continue
+        if isinstance(meta, dict) and meta.get("mode") == "live_calibration":
+            count += 1
+    return count
 
 
 def _ts_to_str(ts_ms: int, fmt: str = "%Y-%m-%d %H:%M") -> str:
@@ -1910,6 +1934,193 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
             if cb2.button("Save to .env", disabled=not both, type="primary", width="stretch"):
                 env_config.update_env({"TELEGRAM_BOT_TOKEN": token_in, "TELEGRAM_CHAT_ID": chat_in})
                 st.success("Saved. Stop + start the loop to pick up the new values.")
+
+        # --- KRAKEN API KEYS --------------------------------------------------
+        st.divider()
+        with st.expander("KRAKEN API KEYS", expanded=False):
+            env_kr = env_config.read_env()
+            cur_key = env_kr.get("KRAKEN_API_KEY", "")
+            cur_secret = env_kr.get("KRAKEN_API_SECRET", "")
+            kr_configured = bool(cur_key and cur_secret)
+            if kr_configured:
+                st.success("Configured ✓")
+            else:
+                st.warning("Not configured")
+            st.caption(
+                "Generate at kraken.com → Settings → API → Create key. "
+                "Permissions: Query Funds, Query Open Orders, Query Closed Orders, "
+                "Modify Orders, Cancel/Close Orders. Do NOT enable Withdraw Funds."
+            )
+            kr_key_in = st.text_input(
+                "API key", value=cur_key, type="password", key="kraken_api_key"
+            )
+            kr_secret_in = st.text_input(
+                "API secret", value=cur_secret, type="password", key="kraken_api_secret"
+            )
+            kr_both = bool(kr_key_in and kr_secret_in)
+            if st.button(
+                "Save Kraken keys to .env", disabled=not kr_both, type="primary", width="stretch"
+            ):
+                env_config.update_env(
+                    {"KRAKEN_API_KEY": kr_key_in, "KRAKEN_API_SECRET": kr_secret_in}
+                )
+                st.success("Saved. Stop + start the loop to pick up the new values.")
+
+        # --- GO LIVE WORKFLOW -------------------------------------------------
+        # The flip from paper to live is a 4-checkbox confirmation, not a
+        # single button. Each checkbox is a thing the operator must explicitly
+        # acknowledge — cannot be brute-forced by accident.
+        st.divider()
+        st.subheader("GO LIVE")
+        env_live = env_config.read_env()
+        broker_now = env_live.get("TRADERBOT_BROKER", "paper").strip().lower()
+        live_flag_now = env_live.get("LIVE_TRADING", "").strip().lower() == "true"
+        kraken_dry_now = env_live.get("KRAKEN_DRY_RUN", "true").strip().lower() == "true"
+
+        if broker_now == "kraken" and live_flag_now:
+            mode_label = "LIVE (dry-run)" if kraken_dry_now else "LIVE (real money)"
+            mode_color = "var(--accent)" if kraken_dry_now else "var(--red)"
+            st.markdown(
+                f'<div style="font-family:JetBrains Mono,monospace; font-size:13px; '
+                f"font-weight:700; color:{mode_color}; padding:8px; "
+                f'background:rgba(239,68,68,0.06); border-left:2px solid {mode_color};">'
+                f"⚠ {mode_label}</div>",
+                unsafe_allow_html=True,
+            )
+            if kraken_dry_now:
+                st.caption(
+                    "Dry-run: Kraken broker is constructed but every place() returns a "
+                    "synthetic fill. No real orders flow. Untick KRAKEN_DRY_RUN below to "
+                    "enable real-money orders (also requires active session gate)."
+                )
+                if st.button("Enable real-money orders", type="primary", width="stretch"):
+                    env_config.update_env({"KRAKEN_DRY_RUN": "false"})
+                    st.success("KRAKEN_DRY_RUN=false saved. Restart the loop.")
+                    st.rerun()
+            else:
+                st.caption(
+                    "**Real-money orders are flowing.** Stop the loop, untick this, or "
+                    "switch back to paper to halt."
+                )
+                if st.button("Switch back to dry-run", type="secondary", width="stretch"):
+                    env_config.update_env({"KRAKEN_DRY_RUN": "true"})
+                    st.success("KRAKEN_DRY_RUN=true saved. Restart the loop.")
+                    st.rerun()
+            if st.button("Switch back to PAPER broker", type="secondary", width="stretch"):
+                env_config.update_env(
+                    {
+                        "TRADERBOT_BROKER": "paper",
+                        "LIVE_TRADING": "",
+                        "KRAKEN_DRY_RUN": "true",
+                    }
+                )
+                st.success("Switched to PAPER. Restart the loop.")
+                st.rerun()
+        else:
+            # Paper mode — show requirements + flip button.
+            ready_checks = _go_live_readiness(
+                rows=rows,
+                loop_running=loop_status.running,
+                loop_started_at_ms=loop_status.started_at_ms,
+                env=env_live,
+                now_ms=int(pd.Timestamp.utcnow().timestamp() * 1000),
+            )
+            blockers = [
+                c for c in ready_checks if c["status"] == "todo" and c["key"] not in ("soak",)
+            ]
+            soak_check = next((c for c in ready_checks if c["key"] == "soak"), None)
+
+            n_done = sum(1 for c in ready_checks if c["status"] == "done")
+            st.caption(
+                f"Currently: PAPER · {n_done}/{len(ready_checks)} readiness items ✓. "
+                f"Going live writes 3 env vars: TRADERBOT_BROKER=kraken, "
+                f"LIVE_TRADING=true, KRAKEN_DRY_RUN=true (real orders gated separately)."
+            )
+            confirm_paper = st.checkbox(
+                "I have configured Kraken API keys above (or I'm using dry-run only)",
+                key="go_live_confirm_keys",
+            )
+            confirm_caps = st.checkbox(
+                "I understand the live caps will limit me to 25% per trade and 5% daily loss "
+                f"on ${float(env_live.get('TRADERBOT_INITIAL_CASH', '100') or '100'):.0f} portfolio",
+                key="go_live_confirm_caps",
+            )
+            confirm_session = st.checkbox(
+                "Live session gate is active (typed LIVE in sidebar above)",
+                key="go_live_confirm_session",
+            )
+            confirm_soak = st.checkbox(
+                f"Soak status acknowledged "
+                f"({soak_check['status'] if soak_check else 'unknown'} — "
+                f"recommended ✓ before live)",
+                key="go_live_confirm_soak",
+            )
+            all_confirmed = confirm_paper and confirm_caps and confirm_session and confirm_soak
+            if blockers:
+                st.error(
+                    "Cannot go live yet — these readiness items are not done: "
+                    + ", ".join(b["name"] for b in blockers)
+                )
+            if st.button(
+                "Switch to LIVE (dry-run mode)",
+                type="primary",
+                width="stretch",
+                disabled=not all_confirmed or bool(blockers),
+            ):
+                env_config.update_env(
+                    {
+                        "TRADERBOT_BROKER": "kraken",
+                        "LIVE_TRADING": "true",
+                        "KRAKEN_DRY_RUN": "true",
+                    }
+                )
+                # Clear the confirms so re-flipping back also requires re-checking.
+                for k in (
+                    "go_live_confirm_keys",
+                    "go_live_confirm_caps",
+                    "go_live_confirm_session",
+                    "go_live_confirm_soak",
+                ):
+                    st.session_state.pop(k, None)
+                st.success("Switched to LIVE (dry-run). Stop + start the loop.")
+                st.rerun()
+
+        # --- CALIBRATION → FULL LIVE PROMOTION --------------------------------
+        # Auto-shows once the bot has 30+ live_calibration fills (S-55 threshold).
+        # Promotion = TRADERBOT_TRADE_MODE flips from live_calibration to live,
+        # which the executor reads via env. (Simpler than restart-with-new-caps.)
+        cal_count = _live_calibration_fill_count(rows)
+        from risk.live_gate import CALIBRATION_TRADE_COUNT  # noqa: PLC0415
+
+        if cal_count > 0:
+            st.divider()
+            st.subheader("CALIBRATION PROGRESS")
+            pct = min(100, cal_count * 100 // CALIBRATION_TRADE_COUNT)
+            st.markdown(
+                f'<div style="font-family:JetBrains Mono,monospace; font-size:11px; '
+                f'color:var(--text-2);">'
+                f"<strong>{cal_count}</strong> / {CALIBRATION_TRADE_COUNT} calibration fills "
+                f"({pct}%)</div>",
+                unsafe_allow_html=True,
+            )
+            st.progress(min(1.0, cal_count / CALIBRATION_TRADE_COUNT))
+            if cal_count >= CALIBRATION_TRADE_COUNT:
+                st.success(
+                    f"Calibration phase complete — {cal_count} trades logged. "
+                    f"Ready to promote to full live mode (wider caps)."
+                )
+                # Promotion is a no-op in env terms today — the live_full_caps
+                # preset gets picked up on next loop start when we add a
+                # TRADERBOT_TRADE_MODE override. For now the button is a marker.
+                st.caption(
+                    "Promotion logic lands in the next session; for now this is a status "
+                    "marker. The bot continues with calibration caps until then."
+                )
+            else:
+                st.caption(
+                    f"{CALIBRATION_TRADE_COUNT - cal_count} trades remaining before "
+                    f"promotion to full live caps is recommended (S-55)."
+                )
 
         st.divider()
         st.subheader("EVENT COUNTS")
