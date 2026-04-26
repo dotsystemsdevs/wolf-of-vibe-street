@@ -226,11 +226,39 @@ def build_from_env() -> tuple[LiveLoop, dict[str, str]]:
     commission_bps = float(_env("TRADERBOT_COMMISSION_BPS"))
 
     marks: dict[str, float] = {}
-    broker = PaperBroker(
-        get_price=lambda s: marks.get(s, 0.0),
-        slippage_bps=slippage_bps,
-        commission_bps=commission_bps,
+    # Broker selection — paper by default; KrakenBroker only when LIVE_TRADING=true
+    # AND TRADERBOT_BROKER=kraken. The is_live_trading_enabled() check is
+    # belt-and-suspenders — KrakenBroker's own constructor also asserts it.
+    from risk.live_gate import (  # noqa: PLC0415
+        LIVE_CALIBRATION_MODE,
+        PAPER_MODE,
+        is_live_trading_enabled,
     )
+
+    broker_name = os.environ.get("TRADERBOT_BROKER", "paper").strip().lower()
+    if broker_name == "kraken":
+        if not is_live_trading_enabled():
+            raise RuntimeError(
+                "TRADERBOT_BROKER=kraken requires LIVE_TRADING=true in the "
+                "environment. The bot refuses to construct a real-money broker "
+                "without the explicit opt-in flag."
+            )
+        from execution.ccxt_kraken import KrakenBroker  # noqa: PLC0415  — defer import
+
+        kraken_dry_run = os.environ.get("KRAKEN_DRY_RUN", "true").strip().lower() == "true"
+        broker = KrakenBroker(dry_run=kraken_dry_run)
+        # All real-broker fills get tagged as calibration until #4 (per-session
+        # human gate) explicitly promotes the bot to full live mode.
+        trade_mode = LIVE_CALIBRATION_MODE
+    elif broker_name == "paper":
+        broker = PaperBroker(
+            get_price=lambda s: marks.get(s, 0.0),
+            slippage_bps=slippage_bps,
+            commission_bps=commission_bps,
+        )
+        trade_mode = PAPER_MODE
+    else:
+        raise ValueError(f"unknown TRADERBOT_BROKER={broker_name!r}. Known: 'paper', 'kraken'")
     log = DecisionLog(log_path)
     caps = RiskCaps()
     executor = Executor(
@@ -240,6 +268,7 @@ def build_from_env() -> tuple[LiveLoop, dict[str, str]]:
         initial_cash=initial_cash,
         caps=caps,
         risk_pct=risk_pct,
+        trade_mode=trade_mode,
     )
     notifier = TelegramNotifier()
 
@@ -265,6 +294,7 @@ def build_from_env() -> tuple[LiveLoop, dict[str, str]]:
         "commission_bps": str(commission_bps),
         "heartbeat_interval_s": str(heartbeat_s),
         "strategy": f"{strategy_entry.label} ({strategy_entry.id})",
+        "broker": f"{broker_name} (mode={trade_mode})",
         "telegram": "configured" if notifier.configured else "not configured (silent)",
     }
     return loop, config

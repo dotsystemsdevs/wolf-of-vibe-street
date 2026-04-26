@@ -103,3 +103,41 @@ def test_build_from_env_legacy_strategy_id_var_still_works(
     loop, cfg = build_from_env()
     assert loop.executor.strategy_id == "mean_reversion_rsi"
     assert "mean_reversion_rsi" in cfg["strategy"]
+
+
+def test_build_from_env_default_broker_is_paper(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Without TRADERBOT_BROKER, must default to PaperBroker + mode=paper."""
+    from execution.ccxt_paper import PaperBroker
+
+    monkeypatch.setenv("TRADERBOT_LOG_PATH", str(tmp_path / "log.db"))
+    monkeypatch.delenv("TRADERBOT_BROKER", raising=False)
+    monkeypatch.delenv("LIVE_TRADING", raising=False)
+
+    loop, cfg = build_from_env()
+    assert isinstance(loop.executor.broker, PaperBroker)
+    assert loop.executor.trade_mode == "paper"
+    assert "paper" in cfg["broker"]
+
+
+def test_build_from_env_kraken_broker_requires_live_trading_flag(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """TRADERBOT_BROKER=kraken without LIVE_TRADING=true must refuse."""
+    monkeypatch.setenv("TRADERBOT_LOG_PATH", str(tmp_path / "log.db"))
+    monkeypatch.setenv("TRADERBOT_BROKER", "kraken")
+    monkeypatch.delenv("LIVE_TRADING", raising=False)
+
+    with pytest.raises(RuntimeError, match="LIVE_TRADING"):
+        build_from_env()
+
+
+def test_build_from_env_unknown_broker_raises(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("TRADERBOT_LOG_PATH", str(tmp_path / "log.db"))
+    monkeypatch.setenv("TRADERBOT_BROKER", "binance_pro_max")
+
+    with pytest.raises(ValueError, match="unknown TRADERBOT_BROKER"):
+        build_from_env()
