@@ -22,7 +22,7 @@ def _row_to_tape_dict(r: dict) -> dict:
                 mode = str(o.get("mode", "") or "")
         except (TypeError, ValueError):
             mode = ""
-    rat = (r.get("rationale") or "")
+    rat = r.get("rationale") or ""
     if len(rat) > 120:
         rat = rat[:117] + "…"
     return {
@@ -88,7 +88,9 @@ def render_tape_tab(rows: list[dict], *, log_path_str: str) -> None:
         },
     )
     n_all, n_f = len(rows), len(tail)
-    st.caption(f"Rader: **{n_f}** i tabellen  (filtrerat från {len(filtered)}  ·  {n_all} totalt i logg)")
+    st.caption(
+        f"Rader: **{n_f}** i tabellen  (filtrerat från {len(filtered)}  ·  {n_all} totalt i logg)"
+    )
 
 
 def render_map_tab() -> None:

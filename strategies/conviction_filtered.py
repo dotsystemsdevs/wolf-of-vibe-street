@@ -40,9 +40,7 @@ def make_conviction_filtered(
                 out.append(sig)
                 continue
             if sig.conviction >= threshold:
-                out.append(
-                    replace(sig, rationale=f"{sig.rationale} | conv≥{threshold:.2f}")
-                )
+                out.append(replace(sig, rationale=f"{sig.rationale} | conv≥{threshold:.2f}"))
             else:
                 out.append(
                     Signal(

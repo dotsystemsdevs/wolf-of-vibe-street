@@ -84,7 +84,11 @@ def test_transient_errors_retry_then_succeed() -> None:
             self.raw = [SAMPLE_RAW[0]]
 
         def fetch_ohlcv(
-            self, symbol: str, timeframe: str = "1h", since: int | None = None, limit: int | None = None
+            self,
+            symbol: str,
+            timeframe: str = "1h",
+            since: int | None = None,
+            limit: int | None = None,
         ) -> list[list[float]]:  # noqa: ARG002
             self.n += 1
             if self.n < 3:
@@ -104,7 +108,11 @@ def test_non_transient_error_not_retried() -> None:
 
     class _Bad:
         def fetch_ohlcv(
-            self, symbol: str, timeframe: str = "1h", since: int | None = None, limit: int | None = None
+            self,
+            symbol: str,
+            timeframe: str = "1h",
+            since: int | None = None,
+            limit: int | None = None,
         ) -> list[list[float]]:  # noqa: ARG002
             raise ccxt.BadSymbol("nope")
 

@@ -2077,9 +2077,7 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
                     f"Calibration phase complete — {cal_count} trades logged. "
                     f"Ready to promote to full live mode (wider caps)."
                 )
-                env_tm = (
-                    env_config.read_env().get("TRADERBOT_TRADE_MODE", "").strip().lower()
-                )
+                env_tm = env_config.read_env().get("TRADERBOT_TRADE_MODE", "").strip().lower()
                 if env_tm == "live":
                     st.info(
                         "Full-live caps are configured (`TRADERBOT_TRADE_MODE=live` in `.env`). "
