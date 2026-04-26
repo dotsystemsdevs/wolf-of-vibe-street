@@ -47,7 +47,7 @@ from ui.views import (  # noqa: E402
 DEFAULT_DB_PATH = Path("data/decision_log/traderbot.db")
 REFRESH_INTERVAL_S = 30
 # Bump when UI changes — if you do not see this in the header, you are not running this file.
-DASHBOARD_BUILD = "2026-04-26q"
+DASHBOARD_BUILD = "2026-04-26r"
 
 GREEN = "#22c55e"
 RED = "#ef4444"
@@ -1850,6 +1850,36 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
                     st.info("Nothing to reset — log was already empty.")
                 # Clear the checkbox state so it has to be re-checked next time.
                 st.session_state.pop("reset_confirm", None)
+                st.rerun()
+
+        with st.expander("DECISION LOG BACKUP", expanded=False):
+            from tools.backup import (  # noqa: PLC0415
+                DEFAULT_BACKUP_DIR,
+                backup_decision_log,
+                list_backups,
+            )
+
+            existing = list_backups(DEFAULT_BACKUP_DIR)
+            if existing:
+                most_recent = existing[0]
+                most_recent_age_min = int(
+                    (pd.Timestamp.utcnow().timestamp() - most_recent.stat().st_mtime) / 60
+                )
+                st.caption(
+                    f"Latest: `{most_recent.name}` · {most_recent_age_min} min ago · "
+                    f"{len(existing)} backups kept (auto-prune at 30)."
+                )
+            else:
+                st.caption("No backups yet. Auto-runs on every loop start.")
+            if st.button("Backup now", width="stretch"):
+                with st.spinner("Backing up decision log..."):
+                    res = backup_decision_log(log_path)
+                if res.ok and res.backup_path is not None:
+                    st.success(f"Saved: `{res.backup_path.name}`")
+                    if res.pruned_paths:
+                        st.caption(f"Pruned {len(res.pruned_paths)} old backup(s).")
+                else:
+                    st.warning(f"Skipped: {res.skipped_reason}")
                 st.rerun()
 
         st.divider()

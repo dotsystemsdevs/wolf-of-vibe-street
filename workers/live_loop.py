@@ -49,6 +49,7 @@ class LiveLoop:
         kill_switch_path: Path = DEFAULT_KILL_SWITCH_PATH,
         notifier: Notifier | None = None,
         heartbeat_interval_s: float = 3600.0,
+        reconcile_interval_s: float = 4 * 3600.0,
     ):
         if timeframe not in TIMEFRAME_MS:
             raise ValueError(f"Unsupported timeframe: {timeframe!r}")
@@ -64,11 +65,18 @@ class LiveLoop:
         self.kill_switch_path = kill_switch_path
         self.notifier: Notifier = notifier or NoOpNotifier()
         self.heartbeat_interval_s = heartbeat_interval_s
+        # Mid-session reconcile cadence. Default 4h: catches drift between
+        # the loop's local picture and the broker's, without hammering the
+        # rate-limited fetch_balance/fetch_open_orders endpoints. Live mode
+        # raises on mismatch (notifier alert, but loop continues — operator
+        # still has to manually intervene).
+        self.reconcile_interval_s = reconcile_interval_s
         self.parquet_path = bars_path(exchange, symbol, timeframe)
         self._last_processed_ts: int | None = None
         self._tf_ms = TIMEFRAME_MS[timeframe]
         self._kill_alerted = False
         self._last_heartbeat_ms: int | None = None
+        self._last_reconcile_ms: int | None = None
 
     def tick(self) -> int:
         """Process all newly-closed bars since last call. Returns count processed."""
@@ -165,6 +173,57 @@ class LiveLoop:
                     ),
                 )
                 self._last_heartbeat_ms = now_ms
+
+            # Periodic mid-session reconcile — every reconcile_interval_s, pull
+            # broker positions/open orders, compare against decision-log-derived
+            # state. Logs a `reconcile` row + Telegram alert on mismatch. Does
+            # NOT halt the loop — operator decides whether to intervene.
+            if (
+                self._last_reconcile_ms is None
+                or now_ms - self._last_reconcile_ms >= self.reconcile_interval_s * 1000
+            ):
+                try:
+                    from execution.reconcile import reconcile  # noqa: PLC0415
+
+                    rec = reconcile(self.executor.broker, self.executor.log.all())
+                    self.executor.log.append(
+                        DecisionEvent(
+                            timestamp_ms=now_ms,
+                            event_type="reconcile",
+                            symbol=self.symbol,
+                            strategy_id=self.executor.strategy_id,
+                            rationale=f"periodic: {rec.summary()}",
+                            metadata={
+                                "is_clean": rec.is_clean,
+                                "broker_positions": len(rec.broker_positions),
+                                "log_positions": len(rec.log_positions),
+                                "open_orders": rec.open_orders_count,
+                                "mismatches": [
+                                    {
+                                        "symbol": m.symbol,
+                                        "broker_qty": m.broker_qty,
+                                        "log_qty": m.log_qty,
+                                    }
+                                    for m in rec.mismatches
+                                ],
+                                "kind": "periodic",
+                            },
+                        )
+                    )
+                    if not rec.is_clean:
+                        self.notifier.notify(
+                            "ERROR",
+                            "Reconcile mismatch (periodic)",
+                            rec.summary(),
+                        )
+                except Exception as e:  # noqa: BLE001
+                    # Reconcile failures must not crash the loop. Log + notify.
+                    self.notifier.notify(
+                        "ERROR",
+                        "Periodic reconcile failed",
+                        f"{type(e).__name__}: {e}",
+                    )
+                self._last_reconcile_ms = now_ms
 
             time.sleep(self.poll_interval_s)
             i += 1
@@ -292,6 +351,17 @@ def build_from_env() -> tuple[LiveLoop, dict[str, str]]:
         risk_pct=risk_pct,
         trade_mode=trade_mode,
     )
+
+    # Auto-backup the decision log at every loop start. Cheap (file copy of a
+    # small SQLite DB), idempotent, and gives us a rollback point if the live
+    # session corrupts state. Failures here must NOT block startup — backup is
+    # nice-to-have, not blocking.
+    try:
+        from tools.backup import backup_decision_log  # noqa: PLC0415
+
+        backup_decision_log(log_path)
+    except Exception as e:  # noqa: BLE001
+        print(f"WARN: decision log backup failed at startup: {type(e).__name__}: {e}")
 
     # Reconcile-on-startup (P-11): pull broker positions/orders, compare to log.
     # Paper: always trivially clean (broker boots empty + log walked from scratch).

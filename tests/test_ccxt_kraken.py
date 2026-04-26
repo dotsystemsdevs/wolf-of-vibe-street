@@ -249,3 +249,89 @@ def test_response_to_fill_returns_none_on_zero_filled() -> None:
     assert (
         _ccxt_response_to_fill({"filled": 1, "average": None}, order, fallback_ts=1) is None
     )  # no avg
+
+
+# --- cancel() ---
+
+
+def test_expected_cancel_resolves_coid_via_userref(monkeypatch: pytest.MonkeyPatch) -> None:
+    """cancel(coid) must fetch open orders, match userref, and call cancel_order on the match."""
+    monkeypatch.setenv("LIVE_TRADING", "true")
+    coid = make_client_order_id("test", "sig1")
+    expected_userref = _coid_to_userref(coid)
+    fake = _FakeCCXT(
+        open_orders=[
+            {
+                "id": "kraken-order-99",
+                "symbol": "BTC/USDT",
+                "side": "buy",
+                "amount": 0.01,
+                "type": "limit",
+                "price": 50000,
+                # CCXT often surfaces userref via params.userref or info.userref
+                "params": {"userref": expected_userref},
+            },
+            {
+                # Unrelated order — different userref, must not be cancelled.
+                "id": "kraken-order-100",
+                "symbol": "BTC/USDT",
+                "side": "sell",
+                "amount": 0.01,
+                "type": "limit",
+                "price": 60000,
+                "params": {"userref": expected_userref + 1},
+            },
+        ]
+    )
+    broker = KrakenBroker(api_key="k", api_secret="s", exchange=fake)
+    assert broker.cancel(coid) is True
+    assert fake.cancel_calls == ["kraken-order-99"]
+
+
+def test_edge_cancel_returns_false_when_no_match(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No open order with matching userref → return False, no cancel_order call."""
+    monkeypatch.setenv("LIVE_TRADING", "true")
+    coid = make_client_order_id("test", "sig1")
+    fake = _FakeCCXT(open_orders=[])
+    broker = KrakenBroker(api_key="k", api_secret="s", exchange=fake)
+    assert broker.cancel(coid) is False
+    assert fake.cancel_calls == []
+
+
+def test_edge_cancel_falls_back_to_info_userref(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Some CCXT versions surface userref under info.userref, not params.userref."""
+    monkeypatch.setenv("LIVE_TRADING", "true")
+    coid = make_client_order_id("test", "sig1")
+    expected_userref = _coid_to_userref(coid)
+    fake = _FakeCCXT(
+        open_orders=[
+            {
+                "id": "kraken-order-50",
+                "symbol": "BTC/USDT",
+                "side": "buy",
+                "amount": 0.01,
+                "type": "limit",
+                "price": 50000,
+                "info": {"userref": str(expected_userref)},  # string, also acceptable
+            },
+        ]
+    )
+    broker = KrakenBroker(api_key="k", api_secret="s", exchange=fake)
+    assert broker.cancel(coid) is True
+    assert fake.cancel_calls == ["kraken-order-50"]
+
+
+def test_dry_run_cancel_drops_cached_fill(monkeypatch: pytest.MonkeyPatch) -> None:
+    """In dry_run, cancel(coid) must clear the cached fill so a re-place creates a new one."""
+    monkeypatch.setenv("LIVE_TRADING", "true")
+    broker = KrakenBroker(api_key="k", api_secret="s", exchange=_FakeCCXT(), dry_run=True)
+    coid = make_client_order_id("test", "sig1")
+    order = Order(client_order_id=coid, symbol="BTC/USDT", side="buy", quantity=0.01)
+    f1 = broker.place(order, mark_price=50_000.0, timestamp_ms=1)
+    assert broker.cancel(coid) is True
+    # Cancelling again returns False (already cleared).
+    assert broker.cancel(coid) is False
+    # Re-place creates a fresh fill (different price proves it's not cached).
+    f2 = broker.place(order, mark_price=51_000.0, timestamp_ms=2)
+    assert f1 is not f2
+    assert f2.price == 51_000.0

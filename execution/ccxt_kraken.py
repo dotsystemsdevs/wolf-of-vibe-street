@@ -176,10 +176,60 @@ class KrakenBroker(Broker):
         return fill
 
     def cancel(self, client_order_id: str) -> bool:
-        # Kraken's cancel needs the *exchange* order id, not our coid. Resolving
-        # coid → exchange id requires a fetch_open_orders pass + userref match.
-        # Implemented in the next session alongside reconcile-on-startup.
-        return False
+        """Cancel an open order by our coid. True if cancelled, False otherwise.
+
+        Kraken's API needs the exchange-side order id, not our coid. We map by
+        looking at every open order's `userref` (set by us in `place()`) and
+        matching `_coid_to_userref(client_order_id)`. If multiple orders match
+        the same userref (shouldn't happen — userref is per-coid), we cancel
+        all of them and return True if any cancel succeeds.
+
+        Dry-run: drop the cached fill so a re-place() with the same coid
+        creates a fresh synthetic fill instead of returning the cached one.
+        """
+        if self._dry_run:
+            existed = client_order_id in self._fills_by_coid
+            self._fills_by_coid.pop(client_order_id, None)
+            return existed
+
+        target_userref = _coid_to_userref(client_order_id)
+        try:
+            raw = self._exchange.fetch_open_orders()
+        except Exception:  # noqa: BLE001
+            return False
+
+        cancelled_any = False
+        for order_dict in raw:
+            if not isinstance(order_dict, dict):
+                continue
+            # CCXT exposes Kraken's userref under params.userref or info.userref.
+            params = order_dict.get("params") or {}
+            info = order_dict.get("info") or {}
+            userref = params.get("userref") if isinstance(params, dict) else None
+            if userref is None and isinstance(info, dict):
+                userref = info.get("userref")
+            try:
+                userref_int = int(userref) if userref is not None else None
+            except (TypeError, ValueError):
+                userref_int = None
+            if userref_int != target_userref:
+                continue
+
+            exchange_id = order_dict.get("id")
+            symbol = order_dict.get("symbol")
+            if not exchange_id:
+                continue
+            try:
+                self._exchange.cancel_order(str(exchange_id), symbol)
+                cancelled_any = True
+                # Drop our coid cache so a future place() with the same coid
+                # is allowed to retry (post-cancel, the order is gone).
+                self._fills_by_coid.pop(client_order_id, None)
+            except Exception:  # noqa: BLE001
+                # One cancel failed; keep trying others. Final return reflects
+                # whether *any* cancel succeeded.
+                continue
+        return cancelled_any
 
     def positions(self) -> list[Position]:
         if self._dry_run:
