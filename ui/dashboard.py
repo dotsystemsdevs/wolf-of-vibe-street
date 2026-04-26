@@ -43,7 +43,7 @@ from ui.views import (  # noqa: E402
 DEFAULT_DB_PATH = Path("data/decision_log/traderbot.db")
 REFRESH_INTERVAL_S = 30
 # Bump when UI changes — if you do not see this in the header, you are not running this file.
-DASHBOARD_BUILD = "2026-04-26e"
+DASHBOARD_BUILD = "2026-04-26f"
 
 GREEN = "#22c55e"
 RED = "#ef4444"
@@ -308,6 +308,59 @@ header[data-testid="stHeader"] { background: transparent; }
   letter-spacing: 0.2em; font-weight: 600;
   margin: 14px 0 6px 0; padding-bottom: 4px;
   border-bottom: 1px solid var(--border);
+}
+
+/* --- Global Streamlit widget styling (applies to main + sidebar) --- */
+.stButton > button {
+  font-family: "Oswald", sans-serif !important;
+  font-size: 11px !important;
+  letter-spacing: 0.16em !important;
+  text-transform: uppercase !important;
+  font-weight: 600 !important;
+  border-radius: 0 !important;
+  border: 1px solid var(--border-2) !important;
+  background: #0a0a0a !important;
+  color: var(--text) !important;
+  transition: border-color 0.12s, color 0.12s;
+}
+.stButton > button:hover {
+  border-color: var(--accent) !important;
+  color: var(--accent) !important;
+}
+.stButton > button[kind="primary"] {
+  background: var(--accent) !important;
+  color: #0a0a0a !important;
+  border-color: var(--accent) !important;
+}
+.stButton > button[kind="primary"]:hover {
+  background: #fcd34d !important;
+  border-color: #fcd34d !important;
+  color: #0a0a0a !important;
+}
+.stButton > button:disabled {
+  opacity: 0.4 !important;
+  border-color: var(--border) !important;
+  color: var(--text-3) !important;
+}
+input, textarea, [data-baseweb="input"] input, [data-baseweb="select"] > div {
+  background: #0a0a0a !important;
+  border-radius: 0 !important;
+  color: var(--text) !important;
+  font-family: "JetBrains Mono", monospace !important;
+}
+input:focus, textarea:focus {
+  border-color: var(--accent) !important;
+  box-shadow: none !important;
+}
+[data-testid="stAlert"], [data-baseweb="notification"] {
+  border-radius: 0 !important;
+  background: #0a0a0a !important;
+  border: 1px solid var(--border) !important;
+  border-left-width: 2px !important;
+  padding: 8px 12px !important;
+  font-family: "JetBrains Mono", monospace !important;
+  font-size: 11px !important;
+  box-shadow: none !important;
 }
 
 /* Streamlit tabs — neutralize colors */
@@ -756,41 +809,35 @@ def _render_compare_tab() -> None:
     st.plotly_chart(make_figure(results), config={"displayModeBar": False}, width="stretch")
 
     st.markdown('<div class="section-title">Per-symbol breakdown</div>', unsafe_allow_html=True)
+    # Use the desk's .t table class — same JetBrains Mono / Oswald look as
+    # Trade history. Strategy + Diff get pos/neg color (real outcome). Sharpe,
+    # MaxDD, B&H are *measurements*, not outcomes — kept neutral per color rule.
     rows_html: list[str] = []
     for r in results:
         m = r.result.metrics
         strat_pct = m["total_return_pct"] * 100
         diff = strat_pct - r.buy_hold_return_pct
-        diff_color = GREEN if diff > 0 else (RED if diff < 0 else GREY)
-        strat_color = GREEN if strat_pct > 0 else (RED if strat_pct < 0 else GREY)
+        diff_cls = "pos" if diff > 0 else ("neg" if diff < 0 else "muted")
+        strat_cls = "pos" if strat_pct > 0 else ("neg" if strat_pct < 0 else "muted")
         rows_html.append(
-            f'<tr style="border-bottom:1px solid #1f2937;">'
-            f'<td style="padding:6px 8px;"><strong>{r.symbol}</strong></td>'
-            f'<td style="padding:6px 8px; text-align:right;">{r.bars}</td>'
-            f'<td style="padding:6px 8px; text-align:right;">{int(m["num_trades"])}</td>'
-            f'<td style="padding:6px 8px; text-align:right;">{m["win_rate"] * 100:.1f}%</td>'
-            f'<td style="padding:6px 8px; text-align:right; color:{strat_color}; '
-            f'font-weight:600;">{strat_pct:+.2f}%</td>'
-            f'<td style="padding:6px 8px; text-align:right;">{r.buy_hold_return_pct:+.2f}%</td>'
-            f'<td style="padding:6px 8px; text-align:right; color:{diff_color};">'
-            f"{diff:+.2f}pp</td>"
-            f'<td style="padding:6px 8px; text-align:right;">{m["sharpe"]:+.2f}</td>'
-            f'<td style="padding:6px 8px; text-align:right;">{m["max_drawdown"] * 100:.2f}%</td>'
+            f"<tr>"
+            f"<td><strong>{r.symbol}</strong></td>"
+            f'<td class="num">{r.bars}</td>'
+            f'<td class="num">{int(m["num_trades"])}</td>'
+            f'<td class="num">{m["win_rate"] * 100:.1f}%</td>'
+            f'<td class="num {strat_cls}"><strong>{strat_pct:+.2f}%</strong></td>'
+            f'<td class="num muted">{r.buy_hold_return_pct:+.2f}%</td>'
+            f'<td class="num {diff_cls}">{diff:+.2f}pp</td>'
+            f'<td class="num muted">{m["sharpe"]:+.2f}</td>'
+            f'<td class="num muted">{m["max_drawdown"] * 100:.2f}%</td>'
             f"</tr>"
         )
     st.markdown(
-        '<table style="width:100%; border-collapse:collapse; font-size:12px;">'
-        '<thead><tr style="color:#9ca3af; font-size:10px; text-transform:uppercase; '
-        'letter-spacing:0.08em; border-bottom:1px solid #374151;">'
-        '<th style="padding:6px 8px; text-align:left;">Symbol</th>'
-        '<th style="padding:6px 8px; text-align:right;">Bars</th>'
-        '<th style="padding:6px 8px; text-align:right;">Trades</th>'
-        '<th style="padding:6px 8px; text-align:right;">WR</th>'
-        '<th style="padding:6px 8px; text-align:right;">Strategy</th>'
-        '<th style="padding:6px 8px; text-align:right;">B&amp;H</th>'
-        '<th style="padding:6px 8px; text-align:right;">Diff</th>'
-        '<th style="padding:6px 8px; text-align:right;">Sharpe</th>'
-        '<th style="padding:6px 8px; text-align:right;">MaxDD</th>'
+        '<table class="t">'
+        "<thead><tr>"
+        "<th>Symbol</th><th>Bars</th><th>Trades</th><th>WR</th>"
+        "<th>Strategy</th><th>B&amp;H</th><th>Diff</th>"
+        "<th>Sharpe</th><th>MaxDD</th>"
         "</tr></thead><tbody>" + "".join(rows_html) + "</tbody></table>",
         unsafe_allow_html=True,
     )
