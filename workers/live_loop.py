@@ -196,14 +196,31 @@ def _env(key: str) -> str:
 
 
 def build_from_env() -> tuple[LiveLoop, dict[str, str]]:
-    """Wire a LiveLoop from env vars. Returns the loop and a config-summary dict."""
+    """Wire a LiveLoop from env vars. Returns the loop and a config-summary dict.
+
+    `TRADERBOT_STRATEGY` (snake_case id, e.g. "mean_reversion_rsi") selects the
+    signal generator. Falls back to `TRADERBOT_STRATEGY_ID` for back-compat with
+    older .env files. Unknown ids raise ValueError so a typo can't silently
+    fall back to baseline.
+    """
+    from backtest.compare import (  # noqa: PLC0415  — defer import; large dep tree
+        DEFAULT_STRATEGY_ID,
+        strategy_by_id,
+    )
+
     log_path = Path(_env("TRADERBOT_LOG_PATH"))
     initial_cash = float(_env("TRADERBOT_INITIAL_CASH"))
     symbol = _env("TRADERBOT_SYMBOL")
     timeframe = _env("TRADERBOT_TIMEFRAME")
     poll_interval_s = float(_env("TRADERBOT_POLL_INTERVAL_S"))
     risk_pct = float(_env("TRADERBOT_RISK_PCT"))
-    strategy_id = _env("TRADERBOT_STRATEGY_ID")
+    # Prefer TRADERBOT_STRATEGY; fall back to legacy TRADERBOT_STRATEGY_ID.
+    strategy_id = (
+        os.environ.get("TRADERBOT_STRATEGY")
+        or os.environ.get("TRADERBOT_STRATEGY_ID")
+        or DEFAULT_STRATEGY_ID
+    )
+    strategy_entry = strategy_by_id(strategy_id)  # raises if unknown
     heartbeat_s = float(_env("TRADERBOT_HEARTBEAT_INTERVAL_S"))
     slippage_bps = float(_env("TRADERBOT_SLIPPAGE_BPS"))
     commission_bps = float(_env("TRADERBOT_COMMISSION_BPS"))
@@ -219,7 +236,7 @@ def build_from_env() -> tuple[LiveLoop, dict[str, str]]:
     executor = Executor(
         broker=broker,
         log=log,
-        strategy_id=strategy_id,
+        strategy_id=strategy_entry.id,
         initial_cash=initial_cash,
         caps=caps,
         risk_pct=risk_pct,
@@ -234,6 +251,7 @@ def build_from_env() -> tuple[LiveLoop, dict[str, str]]:
         poll_interval_s=poll_interval_s,
         notifier=notifier,
         heartbeat_interval_s=heartbeat_s,
+        strategy_fn=strategy_entry.fn,
     )
 
     config = {
@@ -246,7 +264,7 @@ def build_from_env() -> tuple[LiveLoop, dict[str, str]]:
         "slippage_bps": str(slippage_bps),
         "commission_bps": str(commission_bps),
         "heartbeat_interval_s": str(heartbeat_s),
-        "strategy_id": strategy_id,
+        "strategy": f"{strategy_entry.label} ({strategy_entry.id})",
         "telegram": "configured" if notifier.configured else "not configured (silent)",
     }
     return loop, config

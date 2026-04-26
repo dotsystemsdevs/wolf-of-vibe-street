@@ -32,15 +32,52 @@ DEFAULT_TIMEFRAME = "1h"
 DEFAULT_DAYS = 30
 INITIAL_CASH = 10_000.0
 
-# Strategy registry — single source of truth for "which strategies can the
-# dashboard show in the dropdown". Add a new strategy here and it surfaces
-# everywhere automatically. Keys are user-facing labels.
+# Strategy registry — single source of truth for "which strategies exist".
+# `id` (snake_case) is what goes in .env and the decision log; `label` is what
+# the dashboard dropdown shows; `fn` is the signal generator. Adding a new
+# strategy here surfaces it everywhere — dashboard, live loop, decision log.
 StrategyFn = Callable[..., list[Signal]]
-STRATEGIES: dict[str, StrategyFn] = {
-    "Baseline EMA-cross": baseline_signals,
-    "Mean-reversion RSI": mean_rev_signals,
+
+
+@dataclass(frozen=True, slots=True)
+class StrategyEntry:
+    id: str
+    label: str
+    fn: StrategyFn
+
+
+STRATEGIES: dict[str, StrategyEntry] = {
+    "baseline_ema_cross": StrategyEntry(
+        id="baseline_ema_cross",
+        label="Baseline EMA-cross",
+        fn=baseline_signals,
+    ),
+    "mean_reversion_rsi": StrategyEntry(
+        id="mean_reversion_rsi",
+        label="Mean-reversion RSI",
+        fn=mean_rev_signals,
+    ),
 }
-DEFAULT_STRATEGY = "Baseline EMA-cross"
+DEFAULT_STRATEGY_ID = "baseline_ema_cross"
+
+
+def strategy_by_label(label: str) -> StrategyEntry:
+    """Look up a strategy by its dashboard label. Raises if not found."""
+    for entry in STRATEGIES.values():
+        if entry.label == label:
+            return entry
+    raise KeyError(f"unknown strategy label: {label!r}")
+
+
+def strategy_by_id(strategy_id: str) -> StrategyEntry:
+    """Look up by snake_case id (used by live loop env var). Raises if not found."""
+    if strategy_id not in STRATEGIES:
+        known = ", ".join(STRATEGIES.keys())
+        raise ValueError(
+            f"unknown TRADERBOT_STRATEGY={strategy_id!r}. Known: {known}"
+        )
+    return STRATEGIES[strategy_id]
+
 
 # Back-compat alias — older callers (and the CLI main) still import `generate_signals`.
 generate_signals = baseline_signals

@@ -18,6 +18,7 @@ def test_build_from_env_defaults(monkeypatch: pytest.MonkeyPatch, tmp_path: Path
         "TRADERBOT_TIMEFRAME",
         "TRADERBOT_POLL_INTERVAL_S",
         "TRADERBOT_RISK_PCT",
+        "TRADERBOT_STRATEGY",
         "TRADERBOT_STRATEGY_ID",
         "TRADERBOT_HEARTBEAT_INTERVAL_S",
         "TRADERBOT_SLIPPAGE_BPS",
@@ -37,6 +38,9 @@ def test_build_from_env_defaults(monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     assert cfg["risk_pct"] == "0.50%"
     assert cfg["telegram"].startswith("not configured")
     assert loop.executor.cash == 10_000.0
+    # Default strategy is baseline EMA-cross.
+    assert "baseline_ema_cross" in cfg["strategy"]
+    assert "Baseline EMA-cross" in cfg["strategy"]
 
 
 def test_build_from_env_overrides(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -56,3 +60,46 @@ def test_build_from_env_overrides(monkeypatch: pytest.MonkeyPatch, tmp_path: Pat
     assert cfg["poll_interval_s"] == "60.0"
     assert cfg["telegram"] == "configured"
     assert loop.executor.cash == 5_000.0
+
+
+def test_build_from_env_selects_mean_reversion_strategy(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """TRADERBOT_STRATEGY=mean_reversion_rsi must wire that strategy into the loop."""
+    monkeypatch.setenv("TRADERBOT_LOG_PATH", str(tmp_path / "log.db"))
+    monkeypatch.setenv("TRADERBOT_STRATEGY", "mean_reversion_rsi")
+    monkeypatch.delenv("TRADERBOT_STRATEGY_ID", raising=False)
+
+    loop, cfg = build_from_env()
+
+    from strategies.mean_reversion_rsi import generate_signals as mean_rev_fn
+
+    assert loop.strategy_fn is mean_rev_fn
+    assert "mean_reversion_rsi" in cfg["strategy"]
+    assert "Mean-reversion RSI" in cfg["strategy"]
+    # The decision-log strategy_id matches what runs.
+    assert loop.executor.strategy_id == "mean_reversion_rsi"
+
+
+def test_build_from_env_unknown_strategy_raises(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A typo in TRADERBOT_STRATEGY must fail loudly, not silently fall back."""
+    monkeypatch.setenv("TRADERBOT_LOG_PATH", str(tmp_path / "log.db"))
+    monkeypatch.setenv("TRADERBOT_STRATEGY", "doesnt_exist")
+
+    with pytest.raises(ValueError, match="unknown TRADERBOT_STRATEGY"):
+        build_from_env()
+
+
+def test_build_from_env_legacy_strategy_id_var_still_works(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Old .env files using TRADERBOT_STRATEGY_ID continue to work as before."""
+    monkeypatch.setenv("TRADERBOT_LOG_PATH", str(tmp_path / "log.db"))
+    monkeypatch.delenv("TRADERBOT_STRATEGY", raising=False)
+    monkeypatch.setenv("TRADERBOT_STRATEGY_ID", "mean_reversion_rsi")
+
+    loop, cfg = build_from_env()
+    assert loop.executor.strategy_id == "mean_reversion_rsi"
+    assert "mean_reversion_rsi" in cfg["strategy"]

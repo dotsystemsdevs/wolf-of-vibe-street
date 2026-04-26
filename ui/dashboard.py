@@ -22,12 +22,13 @@ import streamlit as st  # noqa: E402
 import streamlit.components.v1 as components  # noqa: E402
 
 from backtest.compare import (  # noqa: E402
-    DEFAULT_STRATEGY,
+    DEFAULT_STRATEGY_ID,
     DEFAULT_SYMBOLS,
     STRATEGIES,
     make_figure,
     rank_by_expectancy,
     run_comparison,
+    strategy_by_label,
 )
 from memory.decision_log import DecisionLog  # noqa: E402
 from risk.caps import DEFAULT_KILL_SWITCH_PATH, kill_switch_active  # noqa: E402
@@ -46,7 +47,7 @@ from ui.views import (  # noqa: E402
 DEFAULT_DB_PATH = Path("data/decision_log/traderbot.db")
 REFRESH_INTERVAL_S = 30
 # Bump when UI changes — if you do not see this in the header, you are not running this file.
-DASHBOARD_BUILD = "2026-04-26h"
+DASHBOARD_BUILD = "2026-04-26i"
 
 GREEN = "#22c55e"
 RED = "#ef4444"
@@ -513,7 +514,7 @@ def _cached_symbol_ranking(
     symbols_key: tuple[str, ...],
     days: int,
     timeframe: str,
-    strategy_label: str,
+    strategy_id: str,
 ) -> list[dict]:
     """24-hour cached symbol-expectancy ranking, keyed on strategy as well.
 
@@ -521,9 +522,9 @@ def _cached_symbol_ranking(
     invalidates on any (symbols, days, timeframe, strategy) change, or via
     the panel's "Refresh" button (clears st.cache_data).
     """
-    fn = STRATEGIES.get(strategy_label, STRATEGIES[DEFAULT_STRATEGY])
+    entry = STRATEGIES.get(strategy_id, STRATEGIES[DEFAULT_STRATEGY_ID])
     results = run_comparison(
-        list(symbols_key), days=days, timeframe=timeframe, strategy_fn=fn
+        list(symbols_key), days=days, timeframe=timeframe, strategy_fn=entry.fn
     )
     ranked = rank_by_expectancy(results)
     return [
@@ -821,7 +822,7 @@ def _render_compare_tab() -> None:
     timeframe = c3.selectbox("Timeframe", ["1h", "4h", "1d"], index=0, key="compare_tf")
     strategy_label = c4.selectbox(
         "Strategy",
-        list(STRATEGIES.keys()),
+        [e.label for e in STRATEGIES.values()],
         index=0,
         key="compare_strategy",
     )
@@ -831,6 +832,7 @@ def _render_compare_tab() -> None:
         if not symbols:
             st.error("Need at least one symbol.")
             return
+        entry = strategy_by_label(strategy_label)
         with st.spinner(
             f"Backfilling + backtesting {len(symbols)} symbols on {strategy_label}..."
         ):
@@ -839,7 +841,7 @@ def _render_compare_tab() -> None:
                     symbols,
                     days=int(days),
                     timeframe=timeframe,
-                    strategy_fn=STRATEGIES[strategy_label],
+                    strategy_fn=entry.fn,
                 )
             except Exception as e:
                 st.error(f"Comparison failed: {type(e).__name__}: {e}")
@@ -1257,23 +1259,28 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
         # you A/B baseline EMA-cross vs mean-reversion RSI on the same data.
         # Backtests are heavy so the cache is per-day per-strategy; refresh
         # button below clears it on demand.
-        strategy_label = st.session_state.get("expectancy_strategy", DEFAULT_STRATEGY)
+        labels = [e.label for e in STRATEGIES.values()]
+        default_label = STRATEGIES[DEFAULT_STRATEGY_ID].label
+        chosen_label = st.session_state.get("expectancy_strategy", default_label)
+        if chosen_label not in labels:
+            chosen_label = default_label
         _section(
             "Symbol expectancy",
-            f"{strategy_label} · 30d backtest · {timeframe} bars",
+            f"{chosen_label} · 30d backtest · {timeframe} bars",
         )
-        ctl_left, ctl_right = st.columns([2, 3])
-        chosen = ctl_left.selectbox(
+        ctl_left, _ = st.columns([2, 3])
+        chosen_label = ctl_left.selectbox(
             "Strategy",
-            list(STRATEGIES.keys()),
-            index=list(STRATEGIES.keys()).index(strategy_label),
+            labels,
+            index=labels.index(chosen_label),
             key="expectancy_strategy",
             label_visibility="collapsed",
         )
+        chosen_entry = strategy_by_label(chosen_label)
         live_symbol = symbol_env
         try:
             ranked = _cached_symbol_ranking(
-                DEFAULT_SYMBOLS, days=30, timeframe=timeframe, strategy_label=chosen
+                DEFAULT_SYMBOLS, days=30, timeframe=timeframe, strategy_id=chosen_entry.id
             )
         except Exception as e:  # noqa: BLE001
             ranked = []
@@ -1344,7 +1351,7 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
                 hint_html = (
                     f'<span style="color:var(--red); font-weight:700;">STRATEGY ALERT</span> '
                     f"All {len(ranked)} watchlist symbols have negative expectancy on "
-                    f"<strong>{chosen}</strong> over the last 30d. Switching symbol won't "
+                    f"<strong>{chosen_label}</strong> over the last 30d. Switching symbol won't "
                     f"fix this — try the other strategy in the dropdown above, "
                     f"or enable the LLM filter."
                 )
@@ -1438,6 +1445,30 @@ def render(log_path: Path, initial_cash: float, kill_switch_path: Path) -> None:
                 if not new_status.running:
                     st.error("Loop failed to start — check log below.")
                 st.rerun()
+
+        # Active strategy — read from .env so it reflects what the *next* loop
+        # start will use (and matches the running loop if .env hasn't changed
+        # since start). Surfaces the multi-strategy switch to the operator.
+        env_now = env_config.read_env()
+        active_strategy_id = (
+            env_now.get("TRADERBOT_STRATEGY")
+            or env_now.get("TRADERBOT_STRATEGY_ID")
+            or DEFAULT_STRATEGY_ID
+        )
+        if active_strategy_id in STRATEGIES:
+            active_label = STRATEGIES[active_strategy_id].label
+            strategy_color = "var(--accent)"
+        else:
+            active_label = f"⚠ unknown: {active_strategy_id}"
+            strategy_color = "var(--red)"
+        st.markdown(
+            f'<div style="font-family:JetBrains Mono,monospace; font-size:11px; '
+            f'color:var(--text-3); margin-top:8px;">'
+            f'<span style="color:var(--text-3);">Strategy</span> '
+            f'<span style="color:{strategy_color}; font-weight:700;">{active_label}</span>'
+            f"</div>",
+            unsafe_allow_html=True,
+        )
         st.caption(f"Logs: `{loop_status.log_path}`")
 
         with st.expander("RESET FOR FRESH SOAK", expanded=False):
