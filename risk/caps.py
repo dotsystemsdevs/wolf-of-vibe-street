@@ -69,6 +69,39 @@ def live_calibration_caps(
     )
 
 
+def paper_caps(
+    initial_cash_usd: float = 10_000.0,
+    *,
+    kill_switch_path: Path = DEFAULT_KILL_SWITCH_PATH,
+) -> RiskCaps:
+    """Sensible caps for paper trading at the given account size.
+
+    The default `RiskCaps()` ($50k per-position, $100k total) was sized for
+    a much larger account; on a $10k paper account it allowed any single
+    position to be 5× the account size (real bug found 2026-05-03 — ADA at
+    60% notional, AAVE at 45%, combined > 100% leverage). Scale-by-equity
+    here mirrors the live presets so the same operator behavior applies in
+    paper without needing to remember absolute dollar caps.
+
+      - max_position_notional_usd: 20% of equity — caps a single tight-stop
+        entry from going leveraged. On $10k → $2,000/trade.
+      - max_total_notional_usd: 80% of equity — leaves 20% in cash for
+        drawdown buffer. Aggressive day-trader profile (was 60%).
+      - max_concurrent_positions: 7 — allows fuller portfolio coverage of the
+        14-symbol universe without filling every slot at once. Boosted from 5
+        on 2026-05-03 per operator request for more aggression.
+    """
+    return RiskCaps(
+        max_concurrent_positions=7,
+        max_position_notional_usd=initial_cash_usd * 0.20,
+        max_total_notional_usd=initial_cash_usd * 0.80,
+        max_daily_drawdown_pct=0.05,
+        max_weekly_drawdown_pct=0.10,
+        max_daily_loss_usd=float("inf"),  # paper — no $-floor needed
+        kill_switch_path=kill_switch_path,
+    )
+
+
 def live_full_caps(
     initial_cash_usd: float = 100.0,
     *,

@@ -27,6 +27,12 @@ from signals.types import Signal
 from strategies.baseline_ema_cross import generate_signals as baseline_signals
 from strategies.conviction_filtered import make_conviction_filtered
 from strategies.mean_reversion_rsi import generate_signals as mean_rev_signals
+from strategies.mean_reversion_rsi import make_aggressive_mean_rev, make_no_stops_mean_rev
+from strategies.short_mean_rev import make_short_mean_rev
+from strategies.momentum_breakout import generate_signals as breakout_signals
+from strategies.multi_timeframe import make_regime_gated_15m, make_union_strategy
+from strategies.regime_aware import make_regime_aware
+from strategies.regime_filtered import make_regime_filtered
 
 DEFAULT_SYMBOLS = ("BTC/USDT", "ETH/USDT", "SOL/USDT")
 DEFAULT_TIMEFRAME = "1h"
@@ -71,6 +77,127 @@ STRATEGIES: dict[str, StrategyEntry] = {
         id="mean_rev_filtered",
         label="Mean-reversion + conviction filter (≥0.5)",
         fn=make_conviction_filtered(mean_rev_signals, threshold=0.5),
+    ),
+    # Donchian-channel momentum-breakout. Trend-following, asymmetric exit.
+    "momentum_breakout": StrategyEntry(
+        id="momentum_breakout",
+        label="Momentum breakout (20/10)",
+        fn=breakout_signals,
+    ),
+    # Regime-filtered variants — only allow BUY when close > EMA200 (uptrend confirmed).
+    # Designed to keep the bot in cash during bear regimes where trend-following gets whipsawed.
+    "baseline_regime": StrategyEntry(
+        id="baseline_regime",
+        label="Baseline EMA-cross + regime filter (close>EMA200)",
+        fn=make_regime_filtered(baseline_signals),
+    ),
+    "breakout_regime": StrategyEntry(
+        id="breakout_regime",
+        label="Momentum breakout + regime filter",
+        fn=make_regime_filtered(breakout_signals),
+    ),
+    # Mean-reversion without ATR hard stops — Reddit-validated insight that
+    # tight stops fight reversal trades. 90-day backtest showed -90% loss reduction.
+    "mean_rev_no_stops": StrategyEntry(
+        id="mean_rev_no_stops",
+        label="Mean-reversion (no stops)",
+        fn=make_no_stops_mean_rev(),
+    ),
+    # Composite: regime detector picks the right tool per market state.
+    # Uptrend → trend-following (baseline). Sideways → mean-reversion (no stops).
+    # Downtrend → hold (cash). The bot stops fighting the regime.
+    "regime_aware": StrategyEntry(
+        id="regime_aware",
+        label="Regime-aware (trend / mean-rev / cash)",
+        fn=make_regime_aware(
+            uptrend_fn=baseline_signals,
+            sideways_fn=make_no_stops_mean_rev(),
+            downtrend_fn=None,  # cash during downtrend
+        ),
+    ),
+    # Same router but downtrend gets mean-rev instead of cash. Spot-only means we
+    # can't short the trend, but we CAN buy oversold bounces during it. Tested
+    # against `regime_aware` head-to-head before deploying.
+    "regime_aware_dipbuy": StrategyEntry(
+        id="regime_aware_dipbuy",
+        label="Regime-aware + dip-buy (trend / mean-rev / mean-rev)",
+        fn=make_regime_aware(
+            uptrend_fn=baseline_signals,
+            sideways_fn=make_no_stops_mean_rev(),
+            downtrend_fn=make_no_stops_mean_rev(),
+        ),
+    ),
+    # Aggressive variant — RSI thresholds 40/60 instead of 30/70. Roughly 2-3×
+    # the entry frequency for operator visibility. Edge per trade is lower; total
+    # PF should be checked head-to-head against `regime_aware_dipbuy` before this
+    # is deployed live. Useful when the goal is "show me activity, accept smaller
+    # edge per trade".
+    "regime_aware_aggressive": StrategyEntry(
+        id="regime_aware_aggressive",
+        label="Regime-aware aggressive (RSI 40/60)",
+        fn=make_regime_aware(
+            uptrend_fn=baseline_signals,
+            sideways_fn=make_aggressive_mean_rev(oversold=40.0, overbought=60.0),
+            downtrend_fn=make_aggressive_mean_rev(oversold=40.0, overbought=60.0),
+        ),
+    ),
+    # 15m execution gated by 1h regime detection. Single biggest activity
+    # multiplier per the 2026-05-02 multi-timeframe pattern: faster trigger
+    # cadence + slower regime gate filters chop. Sub-strategies are the same
+    # mean-rev-no-stops / baseline used by `regime_aware_dipbuy`, just running
+    # 4× more often and gated by stable 1h trend signal.
+    "mtf_dipbuy_15m": StrategyEntry(
+        id="mtf_dipbuy_15m",
+        label="Multi-TF dip-buy (15m exec / 1h regime)",
+        fn=make_regime_gated_15m(
+            uptrend_fn=baseline_signals,
+            sideways_fn=make_no_stops_mean_rev(),
+            downtrend_fn=make_no_stops_mean_rev(),
+        ),
+    ),
+    # Parallel multi-strategy union: mean-rev + breakout fire on the same
+    # bars, OR-merged. One quiet strategy doesn't silence the other →
+    # roughly doubles entry candidates per symbol. Different signal patterns
+    # (RSI extremes vs Donchian breakout) → naturally orthogonal alphas.
+    "union_meanrev_breakout": StrategyEntry(
+        id="union_meanrev_breakout",
+        label="Union: mean-rev (no stops) + breakout",
+        fn=make_union_strategy(
+            make_no_stops_mean_rev(),
+            breakout_signals,
+        ),
+    ),
+    # Long+short composite. The bear-regime bucket (which dipbuy + union both
+    # leave to mean-rev-buy) here gets **short** mean-rev — when RSI cracks
+    # down from overbought in a downtrend, fade the rally. This is the only
+    # strategy that can profit from sustained drops without a regime flip.
+    # Spot-only paper synthesizes shorts; live promotion requires a perp broker.
+    "regime_aware_long_short": StrategyEntry(
+        id="regime_aware_long_short",
+        label="Long/short (long mean-rev up/sideways · short mean-rev down)",
+        fn=make_regime_aware(
+            uptrend_fn=baseline_signals,
+            sideways_fn=make_no_stops_mean_rev(),
+            downtrend_fn=make_short_mean_rev(),
+        ),
+    ),
+    # Day-trader ensemble. All four orthogonal alphas fire concurrently on
+    # every bar across every symbol; union picks first non-hold. Composition:
+    #   1. Aggressive mean-rev (RSI 40/60) — frequent gentle bounces
+    #   2. No-stops mean-rev (RSI 30/70) — deep oversold bounces (rarer, stronger)
+    #   3. Donchian breakout — momentum follow-through
+    #   4. Short mean-rev — fade overbought rallies (bear-side)
+    # Activity is the *union* of independent fire events, so combined fire
+    # rate ≈ 1 - prod(1 - p_i) — typically 2-3× any single component.
+    "ensemble_daytrader": StrategyEntry(
+        id="ensemble_daytrader",
+        label="Day-trader ensemble (4 orthogonal alphas, long+short)",
+        fn=make_union_strategy(
+            make_aggressive_mean_rev(oversold=40.0, overbought=60.0),
+            make_no_stops_mean_rev(),
+            breakout_signals,
+            make_short_mean_rev(),
+        ),
     ),
 }
 DEFAULT_STRATEGY_ID = "baseline_ema_cross"
@@ -171,7 +298,7 @@ def render_table(results: list[SymbolResult]) -> str:
     return "\n".join(lines)
 
 
-def make_figure(results: list[SymbolResult]) -> go.Figure:
+def make_figure(results: list[SymbolResult], *, light: bool = False) -> go.Figure:
     """Plotly figure: equity curves per symbol, normalized to % return vs starting capital."""
     fig = go.Figure()
     for r in results:
@@ -188,14 +315,21 @@ def make_figure(results: list[SymbolResult]) -> go.Figure:
             )
         )
     fig.add_hline(y=0, line={"color": "#9ca3af", "width": 1, "dash": "dot"})
+    card = "#ffffff" if light else "#121212"
+    gr = "#d4d4d4" if light else "#2a2a2a"
     fig.update_layout(
         title="Baseline EMA-cross — equity curves vs starting capital",
-        template="plotly_dark",
+        template="plotly_dark" if not light else "plotly_white",
+        paper_bgcolor=card,
+        plot_bgcolor=card,
+        font={"color": "#0a0a0a" if light else "#e5e5e5"},
         height=500,
         xaxis_title="Time (UTC)",
         yaxis_title="Return %",
         hovermode="x unified",
-        legend={"orientation": "h", "yanchor": "bottom", "y": 1.02},
+        xaxis={"gridcolor": gr, "linecolor": gr},
+        yaxis={"gridcolor": gr, "linecolor": gr},
+        legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "font": {"size": 11}},
     )
     return fig
 

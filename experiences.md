@@ -131,6 +131,15 @@ A common gym-bro take: someone shows a 63% WR strategy and gets told "63 is very
 ### P-31 — 6% risk-per-trade is account-killer territory ([source: The_AI_Trader / AromaticPlant8504, r/algotrading "Claude bot"])
 A real-world example: 38% WR + 6% portfolio risk per trade. Loss clusters are *normal* at that WR — 5 losers in a row is a 24%+ drawdown; 8 in a row (which happens) is ~38%. Recoverable mathematically, brutal psychologically and often forced-liquidating in practice. **Takeaway:** P-06 (Kelly is brutal) reinforced with arithmetic. Default fixed-% risk should be 0.5–1.0%. If your strategy "needs" 6% to make meaningful money on small capital, the strategy itself is wrong, not the sizing. Don't size around an underpowered edge — find a better edge. #risk
 
+### P-34 — Multi-symbol idempotency keys must include the symbol ([source: 2026-04-27 production-found bug, this repo])
+Found while debugging a phantom `qty mismatch: ETH/USDT(broker=0 log=0.263143)` on a multi-asset paper run. Two unrelated bugs interlocked:
+1. `make_client_order_id(strategy_id, signal_id)` did **not** include the symbol. BTC/ETH/SOL all signal at the same bar timestamp ms; collision → identical COID across symbols → paper broker's idempotency cache returned the *first symbol's* fill for the second and third → log records the wrong symbol on the fill.
+2. The `Executor` carried `_open_stop`, `_open_target`, `_open_signal_id` as single fields, not per-symbol. Multi-symbol BUYs overwrote each other; a later bar on symbol A would compare its own bar.high against symbol B's target and trigger a phantom `target_hit`.
+**Takeaway:** any I-3-style idempotency key in a multi-instrument system must include the *instrument*. And any "open position" state must be keyed by symbol from day one — single-instrument shortcuts are a trap waiting for the first multi-symbol PR. Both: assume future multi-symbol from day one even if launching with one. **Symptom to watch:** reconcile mismatch where the broker is correct and the log is wrong is almost always a duplicated/colliding COID. #execution #multi-symbol
+
+### P-35 — Live-loop bootstrap replays the last N bars on every start ([source: same incident, this repo])
+On startup `LiveLoop` fetches the last 10 bars from CCXT and processes any whose `timestamp_ms > _last_processed_ts`. With the checkpoint initialized to `None`, *every* bar in that window qualifies → the bot re-fires every signal and order it already executed in a prior session. In paper this corrupts the log; in live this would double-fill (caught by the broker's COID dedup, but logged as rejections — noise). **Fix:** seed `_last_processed_ts[sym]` from `MAX(timestamp_ms WHERE event_type='signal' AND symbol=sym)` in the decision log. **Takeaway:** any "process new since X" loop needs durable X. In-memory `None` is a footgun across process restarts. #execution
+
 ### P-21 — How to read AI / EA / prop-firm bot marketing ([source: r/metatrader "Bolt AI" thread, low-signal sample])
 Recurring scam-shaped pattern in the MT4/5 EA + prop-firm niche:
 - **30-second screen recording** of one good session as "proof."

@@ -48,15 +48,39 @@ def trades_dataframe(rows: list[dict[str, Any]]) -> pd.DataFrame:
     """Pair buy fills with the next sell fill (FIFO) → realized round-trip trades.
 
     Single-position simplification: assume one open at a time. Returns columns:
-    entry_ts, exit_ts, qty, entry_price, exit_price, pnl, return_pct, exit_reason.
+    entry_ts, exit_ts, holding_ms, qty, entry_price, exit_price, pnl, return_pct,
+    exit_reason, stop, r_multiple. `stop` + `r_multiple` are populated when the
+    corresponding order_placed event carries stop in its metadata.
     """
+    import json as _json  # noqa: PLC0415
+
+    # signal_id → stop level lookup (from order_placed metadata, BUY only)
+    stops_by_sig: dict[tuple[str, str | None], float | None] = {}
+    for r in rows:
+        if r["event_type"] != "order_placed" or r.get("side") != "buy":
+            continue
+        meta = r.get("metadata_json")
+        if not meta:
+            continue
+        try:
+            d = _json.loads(meta) if isinstance(meta, str) else meta
+        except (TypeError, ValueError):
+            continue
+        stops_by_sig[(r["symbol"], r.get("signal_id"))] = d.get("stop")
+
     fills = [r for r in rows if r["event_type"] == "order_filled"]
     trades: list[dict[str, Any]] = []
-    open_buy: dict[str, Any] | None = None
+    # Per-symbol open-buy tracker. Without this, a SOL sell would pair with a
+    # BTC buy if BTC was the most recently opened position — the math then
+    # crosses asset prices (e.g. exit SOL at $80 vs entry BTC at $76,200) and
+    # produces a phantom $260k+ "trade". Real bug found 2026-05-02.
+    open_buy_by_sym: dict[str, dict[str, Any]] = {}
     for f in fills:
+        sym = str(f.get("symbol") or "")
         if f["side"] == "buy":
-            open_buy = f
-        elif f["side"] == "sell" and open_buy is not None:
+            open_buy_by_sym[sym] = f
+        elif f["side"] == "sell" and sym in open_buy_by_sym:
+            open_buy = open_buy_by_sym.pop(sym)
             qty = float(open_buy["quantity"])
             entry_px = float(open_buy["price"])
             exit_px = float(f["price"])
@@ -64,11 +88,20 @@ def trades_dataframe(rows: list[dict[str, Any]]) -> pd.DataFrame:
             exit_fee = _fee_from_row(f)
             gross = (exit_px - entry_px) * qty
             pnl = gross - entry_fee - exit_fee
+            stop_px = stops_by_sig.get((sym, open_buy.get("signal_id")))
+            # R-multiple: pnl / initial_risk. Long-only so risk = (entry - stop) * qty.
+            # Skip if stop is missing or above entry (degenerate).
+            r_multiple: float | None = None
+            if stop_px is not None and entry_px > stop_px:
+                initial_risk = (entry_px - stop_px) * qty
+                if initial_risk > 0:
+                    r_multiple = pnl / initial_risk
             trades.append(
                 {
-                    "symbol": str(open_buy.get("symbol") or f.get("symbol") or ""),
+                    "symbol": sym,
                     "entry_ts": int(open_buy["timestamp_ms"]),
                     "exit_ts": int(f["timestamp_ms"]),
+                    "holding_ms": int(f["timestamp_ms"]) - int(open_buy["timestamp_ms"]),
                     "qty": qty,
                     "entry_price": entry_px,
                     "exit_price": exit_px,
@@ -77,9 +110,10 @@ def trades_dataframe(rows: list[dict[str, Any]]) -> pd.DataFrame:
                     "fees": entry_fee + exit_fee,
                     "return_pct": exit_px / entry_px - 1.0,
                     "exit_reason": f["rationale"] or "",
+                    "stop": stop_px,
+                    "r_multiple": r_multiple,
                 }
             )
-            open_buy = None
     return (
         pd.DataFrame(trades)
         if trades
@@ -88,6 +122,7 @@ def trades_dataframe(rows: list[dict[str, Any]]) -> pd.DataFrame:
                 "symbol",
                 "entry_ts",
                 "exit_ts",
+                "holding_ms",
                 "qty",
                 "entry_price",
                 "exit_price",
@@ -96,15 +131,21 @@ def trades_dataframe(rows: list[dict[str, Any]]) -> pd.DataFrame:
                 "fees",
                 "return_pct",
                 "exit_reason",
+                "stop",
+                "r_multiple",
             ]
         )
     )
 
 
 def equity_curve(rows: list[dict[str, Any]], initial_cash: float) -> pd.DataFrame:
-    """Walk fills accumulating cash + open position; return equity at each fill timestamp.
+    """Walk fills accumulating cash + per-symbol positions; return equity at each fill ts.
 
-    Long-only, single-position assumption (Phase 1). Equity = cash + open_qty * last_price.
+    Long-only, multi-symbol. Equity = cash + sum(per-symbol qty × that symbol's last
+    known price). Each symbol tracks its own qty + last_price independently — without
+    this, summing qty across symbols (BTC + LINK + SOL) and multiplying by the
+    last-traded symbol's price produces a meaningless number that drifts further from
+    reality with each new symbol added (real bug, found 2026-04-30).
     Includes a synthetic starting point at the first fill timestamp - 1 ms with cash=initial.
     """
     fills = sorted(
@@ -115,9 +156,10 @@ def equity_curve(rows: list[dict[str, Any]], initial_cash: float) -> pd.DataFram
         return pd.DataFrame(columns=["timestamp_ms", "cash", "position_value", "equity"])
 
     cash = float(initial_cash)
-    qty = 0.0
-    avg_entry = 0.0
-    last_price = 0.0
+    # Per-symbol state — qty + last_price seen for that symbol. Position value at any
+    # tick = sum(qty * last_price) across all currently-held symbols.
+    qty_by_sym: dict[str, float] = {}
+    last_px_by_sym: dict[str, float] = {}
     points: list[dict[str, float]] = [
         {
             "timestamp_ms": int(fills[0]["timestamp_ms"]) - 1,
@@ -127,22 +169,22 @@ def equity_curve(rows: list[dict[str, Any]], initial_cash: float) -> pd.DataFram
         }
     ]
     for f in fills:
+        sym = str(f.get("symbol") or "")
         price = float(f["price"])
         fill_qty = float(f["quantity"])
         fee = _fee_from_row(f)
-        last_price = price
+        last_px_by_sym[sym] = price
         if f["side"] == "buy":
             cash -= price * fill_qty + fee
-            new_qty = qty + fill_qty
-            avg_entry = (avg_entry * qty + price * fill_qty) / new_qty if new_qty > 0 else price
-            qty = new_qty
+            qty_by_sym[sym] = qty_by_sym.get(sym, 0.0) + fill_qty
         else:
             cash += price * fill_qty - fee
-            qty -= fill_qty
-            if qty <= 0:
-                qty = 0.0
-                avg_entry = 0.0
-        position_value = qty * last_price
+            qty_by_sym[sym] = qty_by_sym.get(sym, 0.0) - fill_qty
+            if qty_by_sym[sym] <= 1e-9:
+                qty_by_sym[sym] = 0.0
+        position_value = sum(
+            q * last_px_by_sym.get(s, 0.0) for s, q in qty_by_sym.items() if q > 0
+        )
         points.append(
             {
                 "timestamp_ms": int(f["timestamp_ms"]),
@@ -155,17 +197,25 @@ def equity_curve(rows: list[dict[str, Any]], initial_cash: float) -> pd.DataFram
 
 
 def open_positions(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Reconstruct currently-open positions by walking fills."""
+    """Reconstruct currently-open positions by walking fills.
+
+    Enriches each open position with the most recent BUY's stop/target levels
+    if they were stored in the order_placed metadata (added 2026-04-28). Older
+    rows missing the metadata return None for stop/target — UI shows a dash.
+    """
     fills = sorted(
         (r for r in rows if r["event_type"] == "order_filled"),
         key=lambda r: (r["timestamp_ms"], r["id"]),
     )
-    pos: dict[str, dict[str, float]] = {}
+    pos: dict[str, dict[str, Any]] = {}
     for f in fills:
         sym = f["symbol"]
         price = float(f["price"])
         fill_qty = float(f["quantity"])
-        cur = pos.get(sym, {"qty": 0.0, "avg_entry": 0.0, "last_price": 0.0})
+        cur = pos.get(
+            sym,
+            {"qty": 0.0, "avg_entry": 0.0, "last_price": 0.0, "entry_ts": 0, "signal_id": None},
+        )
         cur["last_price"] = price
         if f["side"] == "buy":
             new_qty = cur["qty"] + fill_qty
@@ -175,22 +225,57 @@ def open_positions(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 else price
             )
             cur["qty"] = new_qty
+            cur["entry_ts"] = int(f["timestamp_ms"])
+            cur["signal_id"] = f.get("signal_id")
         else:
             cur["qty"] -= fill_qty
             if cur["qty"] <= 1e-9:
-                cur = {"qty": 0.0, "avg_entry": 0.0, "last_price": price}
+                cur = {
+                    "qty": 0.0,
+                    "avg_entry": 0.0,
+                    "last_price": price,
+                    "entry_ts": 0,
+                    "signal_id": None,
+                }
         pos[sym] = cur
-    return [
-        {
-            "symbol": sym,
-            "qty": p["qty"],
-            "avg_entry": p["avg_entry"],
-            "last_price": p["last_price"],
-            "unrealized_pnl": (p["last_price"] - p["avg_entry"]) * p["qty"],
-        }
-        for sym, p in pos.items()
-        if p["qty"] > 0
-    ]
+
+    # Build a (symbol, signal_id) → (stop, target) map from order_placed metadata.
+    stops_by_sig: dict[tuple[str, str | None], dict[str, float | None]] = {}
+    for r in rows:
+        if r["event_type"] != "order_placed" or r.get("side") != "buy":
+            continue
+        meta = r.get("metadata_json")
+        if meta:
+            import json as _json  # noqa: PLC0415
+
+            try:
+                d = _json.loads(meta) if isinstance(meta, str) else meta
+            except (TypeError, ValueError):
+                d = {}
+            stops_by_sig[(r["symbol"], r.get("signal_id"))] = {
+                "stop": d.get("stop"),
+                "target": d.get("target"),
+            }
+
+    out: list[dict[str, Any]] = []
+    for sym, p in pos.items():
+        if p["qty"] <= 0:
+            continue
+        levels = stops_by_sig.get((sym, p.get("signal_id")), {})
+        out.append(
+            {
+                "symbol": sym,
+                "qty": p["qty"],
+                "avg_entry": p["avg_entry"],
+                "last_price": p["last_price"],
+                "unrealized_pnl": (p["last_price"] - p["avg_entry"]) * p["qty"],
+                "stop": levels.get("stop"),
+                "target": levels.get("target"),
+                "entry_ts": p["entry_ts"],
+                "signal_id": p.get("signal_id"),
+            }
+        )
+    return out
 
 
 def day_pnl(rows: list[dict[str, Any]], *, now_ms: int) -> float:
@@ -213,6 +298,7 @@ def soak_health(
     now_ms: int,
     expected_bar_seconds: int = 3600,
     error_window_seconds: int = 3600,
+    loop_started_at_ms: int | None = None,
 ) -> list[dict[str, str]]:
     """Soak-readiness checks. Returns a list of {name, status, message} dicts.
 
@@ -297,7 +383,12 @@ def soak_health(
                 }
             )
 
+    # Tick errors — only count those AFTER the latest loop start so a restart
+    # clears the indicator instantly. Falls back to the rolling window if we
+    # don't know when the loop started.
     error_cutoff_ms = now_ms - error_window_seconds * 1000
+    if loop_started_at_ms is not None:
+        error_cutoff_ms = max(error_cutoff_ms, int(loop_started_at_ms))
     recent_errors = [
         r
         for r in rows
@@ -306,13 +397,9 @@ def soak_health(
         and int(r["timestamp_ms"]) >= error_cutoff_ms
     ]
     if not recent_errors:
-        out.append(
-            {
-                "name": "Tick errors",
-                "status": "ok",
-                "message": f"No tick errors in last {error_window_seconds // 60} min",
-            }
-        )
+        msg = "No tick errors since last loop start" if loop_started_at_ms else \
+              f"No tick errors in last {error_window_seconds // 60} min"
+        out.append({"name": "Tick errors", "status": "ok", "message": msg})
     else:
         n = len(recent_errors)
         sample = recent_errors[-1]["rationale"] or ""
@@ -320,10 +407,28 @@ def soak_health(
             {
                 "name": "Tick errors",
                 "status": "warn" if n <= 2 else "error",
-                "message": f"{n} tick error(s) in last {error_window_seconds // 60} min "
-                f"— last: {sample[:60]}",
+                "message": f"{n} tick error(s) since last restart — last: {sample[:60]}",
             }
         )
+
+    # Position reconcile — broker vs decision-log position mismatch. Surfaced as
+    # an error because it blocks new trades until resolved.
+    reconciles = [r for r in rows if r["event_type"] == "reconcile"]
+    if reconciles:
+        last_recon = reconciles[-1]
+        rat = last_recon.get("rationale") or ""
+        if "FAILED" in rat or "mismatch" in rat:
+            out.append({
+                "name": "Position reconcile",
+                "status": "error",
+                "message": f"{rat[:90]} — reset log in Settings, or close the stale position manually.",
+            })
+        else:
+            out.append({
+                "name": "Position reconcile",
+                "status": "ok",
+                "message": "Broker positions match the decision log.",
+            })
 
     out.append(
         {

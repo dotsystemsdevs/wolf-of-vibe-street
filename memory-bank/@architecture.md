@@ -29,9 +29,12 @@ traderbot/
 ├── execution/runner.py     # Executor.on_bar(signal, bar) wires risk caps + broker + log
 ├── memory/decision_log.py  # SQLite append-only log (I-6); UPDATE/DELETE blocked by triggers
 ├── workers/live_loop.py    # polling-driven LiveLoop.tick() / .run() — bridges replay → live
-├── ui/views.py             # pure summary functions (testable, no Streamlit dep)
-├── ui/dashboard.py         # Streamlit page — `uv run streamlit run ui/dashboard.py`
+├── ui/views.py             # pure summary functions (testable, no UI dep) — used by web/
 ├── ui/report.py            # text-mode CLI summary — `uv run python -m ui.report`
+├── web/main.py             # FastAPI dashboard — `uv run python -m web.main` (http://localhost:8000)
+├── web/readiness.py        # path-to-live checklist (pure, tested)
+├── web/templates/          # Jinja2 templates: base, _topbar, _sidebar, desk, settings, go_live, tape, map, compare, stub
+├── web/static/             # app.css (custom CSS supplementing Tailwind)
 ├── tools/notifier.py       # Notifier Protocol + TelegramNotifier + NoOpNotifier
 ├── agents/llm_evaluator.py # LLMEvaluator Protocol + ClaudeEvaluator + RuleBasedEvaluator
 ├── strategies/llm_filtered.py # wraps any base strategy: routes `buy` through evaluator
@@ -64,7 +67,7 @@ End-to-end pipe (Phase 1 vertical slice):
 - Daily HW resets at UTC dawn (`bar.timestamp_ms // 86_400_000`); weekly HW at ISO-week rollover (`isocalendar().week`). Both ratchet upward within their period. Tested.
 - **Executor and backtest engine produce equivalent P&L** when caps don't bite — verified on 30 days BTC: backtest −1.82 %, executor −1.91 % (gap is commission/slippage rounding). This consistency is the contract: simulation matches the live code path.
 - `workers/live_loop.py::LiveLoop` is the live driver. `tick()` polls Binance, persists any newly-closed bars to Parquet, recomputes signals on the full history, and feeds each new bar to `Executor.on_bar`. `run(max_iterations=None)` is the forever loop with kill-switch pause. Every tick is testable with a fake client + fake clock — no network needed for unit tests.
-- `ui/views.py` are pure summary functions over decision-log rows (event_counts, fills_dataframe, trades_dataframe, summary). Tested. The Streamlit `ui/dashboard.py` is a thin renderer on top — no business logic. Override paths via env: `TRADERBOT_LOG_PATH`, `TRADERBOT_INITIAL_CASH`, `TRADERBOT_KILL_SWITCH_PATH`.
+- `ui/views.py` are pure summary functions over decision-log rows (event_counts, fills_dataframe, trades_dataframe, summary, equity_curve, open_positions, day_pnl, soak_health). Tested. `web/main.py` is the FastAPI dashboard (Jinja2 + Tailwind via CDN + HTMX + lightweight-charts.js) — thin renderer on top of `ui/views.py`, no business logic. Six views: DESK, GO LIVE, COMPARE, TAPE, MAP, SETTINGS. Override paths via env: `TRADERBOT_LOG_PATH`, `TRADERBOT_INITIAL_CASH`, `TRADERBOT_KILL_SWITCH_PATH`.
 - **Fees flow through to dashboard**: `Executor` writes `metadata={"fee": fill.fee}` on every `order_filled`. `trades_dataframe` and `equity_curve` parse it from `metadata_json` and subtract — `pnl` is now net, with `gross_pnl` and `fees` exposed alongside. Verified end-to-end: 30-day BTC replay reads −1.91 % in the dashboard, matching the live executor exactly (was −0.25 % gross before).
 - **Notifier** (`tools/notifier.py`) is a Protocol; `TelegramNotifier` is the production impl, `NoOpNotifier` the test/dev default. `LiveLoop.run()` calls `notify()` on three signals: kill switch state change (edge-triggered, no spam), tick error (caught + logged + notified), and heartbeat (default every hour). `TelegramNotifier` is configured via env (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`); missing creds → silent no-op so dev/CI doesn't need them. HTTP errors are swallowed via `on_error` callback so a Telegram outage cannot kill the bot.
 

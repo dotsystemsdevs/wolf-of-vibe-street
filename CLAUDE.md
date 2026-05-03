@@ -125,8 +125,9 @@ traderbot/
 ├── backtest/                  # engine + reports
 ├── memory/                    # persisted decisions/rationales (runtime, not memory-bank/)
 ├── tools/                     # MCP-exposable tools
-├── api/                       # FastAPI routes
-├── ui/                        # React dashboard
+├── api/                       # FastAPI route modules (currently empty; web/main.py owns routes)
+├── ui/                        # pure data fns (views.py) + CLI report (report.py); no UI framework
+├── web/                       # FastAPI dashboard: main.py + Jinja2 templates + Tailwind CDN + HTMX
 ├── workers/                   # background loops (data, signal, exec, monitor)
 └── tests/                     # unit + integration; mirrors source tree
 ```

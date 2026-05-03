@@ -212,3 +212,47 @@ def test_paper_default_caps_have_no_daily_loss_usd_limit() -> None:
     from risk.caps import RiskCaps
 
     assert RiskCaps().max_daily_loss_usd == float("inf")
+
+
+def test_paper_caps_caps_a_tight_stop_oversized_position() -> None:
+    """Real bug 2026-05-03: a 0.86%-stop on $0.25 ADA produced $5,988 notional
+    (60% of a $10k account) with $50 "intended risk" — slipping the stop blew
+    out the $50 budget. paper_caps() must reject any single position above
+    20% of equity regardless of how tight the stop is."""
+    from risk.caps import paper_caps
+
+    caps = paper_caps(initial_cash_usd=10_000.0)
+    # Same situation as the live bug: $5,988 notional, account is $10k.
+    state = RiskState(
+        equity_now=10_000.0,
+        daily_high_water=10_000.0,
+        weekly_high_water=10_000.0,
+        open_positions_count=0,
+        open_total_notional_usd=0.0,
+    )
+    d = check_entry(state, intended_notional_usd=5_988.0, caps=caps)
+    assert d.allow is False
+    assert d.reason == "max_position_notional"
+    # 20% = $2,000; just under should pass
+    d2 = check_entry(state, intended_notional_usd=1_999.0, caps=caps)
+    assert d2.allow is True
+
+
+def test_paper_caps_blocks_combined_overleverage() -> None:
+    """Two tight-stop positions can each pass per-position cap but together
+    push total notional > equity. paper_caps caps total at 60% of equity."""
+    from risk.caps import paper_caps
+
+    caps = paper_caps(initial_cash_usd=10_000.0)
+    # paper_caps total cap = 80% of equity = $8,000. Already $7,000 in open
+    # positions, trying to add $2,000 → $9,000 > $8,000 cap.
+    state = RiskState(
+        equity_now=10_000.0,
+        daily_high_water=10_000.0,
+        weekly_high_water=10_000.0,
+        open_positions_count=3,
+        open_total_notional_usd=7_000.0,
+    )
+    d = check_entry(state, intended_notional_usd=2_000.0, caps=caps)
+    assert d.allow is False
+    assert d.reason == "max_total_notional"

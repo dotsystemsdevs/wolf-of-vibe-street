@@ -1,0 +1,200 @@
+{% extends "base.html" %}
+{% from "_macros.html" import divider, section_head %}
+
+{# Map event_type → CSS chip variant. Single source of truth for both
+   the table cells and the filter toggles below. #}
+{% set evt_class = {
+    "order_filled": "fill",
+    "order_rejected": "reject",
+    "risk_block": "block",
+    "order_placed": "place",
+    "reconcile": "recon",
+    "signal": "signal",
+} %}
+
+{% block content %}
+<div class="page">
+
+    <header class="pb-8">
+        <div class="flex items-baseline justify-between flex-wrap gap-3">
+            <h1 class="text-[30px] font-semibold tracking-tight">Tape</h1>
+            <a href="/tape.csv{% if selected_events != all_event_types %}?{% for e in selected_events %}event={{ e }}{% if not loop.last %}&{% endif %}{% endfor %}{% endif %}"
+               class="btn-secondary">
+                Download CSV
+            </a>
+        </div>
+    </header>
+
+    {{ divider() }}
+
+    <section class="py-8">
+        {% set count_sub = (
+            (shown|string) + " rows · " + (raw_count|string) + " raw · matched " + (filtered_count|string) + " of " + (total_rows|string)
+            if collapse_on else
+            (shown|string) + " of " + (total_rows|string) + " · matched " + (filtered_count|string)
+        ) %}
+        {{ section_head("Filter", count_sub) }}
+        <form method="get" action="/tape" class="bg-card border border-line rounded-lg px-4 py-3 space-y-3" id="tape-filter">
+        <div>
+            <div class="text-[10px] font-semibold tracking-[0.1em] uppercase text-ink3 mb-2">Event types</div>
+            <div class="flex flex-wrap gap-2">
+                {% for et in all_event_types %}
+                {% set cls = evt_class.get(et, "default") %}
+                <label class="evt-toggle evt-chip evt-chip--{{ cls }} {% if et in selected_events %}is-on{% endif %}">
+                    <input type="checkbox" name="event" value="{{ et }}" {% if et in selected_events %}checked{% endif %}>
+                    {{ et }}
+                </label>
+                {% endfor %}
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
+            <div>
+                <label class="form-label">From <span class="form-hint">— UTC, inclusive</span></label>
+                <input type="date" name="from_date" value="{{ from_date }}" class="form-input" style="font-family: inherit;">
+            </div>
+            <div>
+                <label class="form-label">To <span class="form-hint">— UTC, inclusive</span></label>
+                <input type="date" name="to_date" value="{{ to_date }}" class="form-input" style="font-family: inherit;">
+            </div>
+            <div class="flex items-end gap-2">
+                <button type="button" onclick="this.form.from_date.value=''; this.form.to_date.value=''; this.form.submit();"
+                        class="btn-secondary text-[11px]">Clear dates</button>
+            </div>
+        </div>
+
+        <div class="flex items-center justify-between gap-2 flex-wrap pt-1 border-t border-line">
+            <label class="flex items-center gap-2 text-[12px] text-ink2 cursor-pointer">
+                <input type="checkbox" name="raw" value="1" {% if not collapse_on %}checked{% endif %} class="accent-green-500">
+                <span>Show every row (don't collapse repeats)</span>
+            </label>
+            <button class="btn-primary">Apply</button>
+        </div>
+        </form>
+    </section>
+
+    {{ divider() }}
+
+    <section class="py-8">
+        {{ section_head("Events", "Click a header to sort · click a cell to select · Esc to clear") }}
+        <div class="sheet-wrap">
+        <table class="sheet" id="tape-sheet">
+            <thead>
+                <tr class="heads">
+                    <th data-sortable data-type="num">id</th>
+                    <th data-sortable data-type="text">UTC</th>
+                    <th data-sortable data-type="text">event</th>
+                    <th data-sortable data-type="text">symbol</th>
+                    <th data-sortable data-type="text">side</th>
+                    <th data-sortable data-type="text">strategy</th>
+                    <th data-sortable data-type="num">price</th>
+                    <th data-sortable data-type="num">qty</th>
+                    <th data-sortable data-type="num">pnl</th>
+                    <th data-sortable data-type="text">coid</th>
+                    <th data-sortable data-type="text">mode</th>
+                    <th data-sortable data-type="text">rationale</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in tape_rows %}
+                <tr>
+                    <td class="num">
+                        {% if r.repeat_count > 1 %}
+                        <span>{{ r.first_id }}–{{ r.last_id }}</span><span class="rep-chip">×{{ r.repeat_count }}</span>
+                        {% else %}{{ r.id }}{% endif %}
+                    </td>
+                    <td class="muted">
+                        {% if r.repeat_count > 1 %}
+                            {{ r.first_ts }}<span class="ts-range">→ {{ r.last_ts }}</span>
+                        {% else %}{{ r.ts }}{% endif %}
+                    </td>
+                    <td><span class="evt-chip evt-chip--{{ evt_class.get(r.event, 'default') }}">{{ r.event }}</span></td>
+                    <td>{{ r.symbol }}</td>
+                    <td class="muted">{{ r.side }}</td>
+                    <td class="muted">{{ r.strategy }}</td>
+                    <td class="num muted">{% if r.price is not none %}{{ "{:.6f}".format(r.price|float) }}{% endif %}</td>
+                    <td class="num muted">{% if r.qty is not none %}{{ "{:.6f}".format(r.qty|float) }}{% endif %}</td>
+                    <td class="num
+                        {% if r.pnl is not none and r.pnl|float > 0 %}pos
+                        {% elif r.pnl is not none and r.pnl|float < 0 %}neg
+                        {% else %}muted{% endif %}">{% if r.pnl is not none %}{{ "{:+.2f}".format(r.pnl|float) }}{% endif %}</td>
+                    <td class="muted">{{ r.coid }}</td>
+                    <td class="muted">{{ r.mode }}</td>
+                    <td title="{{ r.rationale }}">{{ r.rationale }}</td>
+                </tr>
+                {% else %}
+                <tr><td colspan="12" class="empty-row">No events match filter.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        </div>
+    </section>
+
+    {{ divider() }}
+
+    <footer class="pt-6 mt-2 text-[10.5px] font-mono text-ink3 flex justify-between flex-wrap gap-2">
+        <span>Build {{ build }}</span>
+        <span>{{ project_name }} · {{ total_rows }} events</span>
+    </footer>
+</div>
+
+<script>
+(function() {
+    const table = document.getElementById('tape-sheet');
+    if (!table) return;
+    const tbody = table.querySelector('tbody');
+
+    // Sort: click a column header to sort. Click again to reverse.
+    table.querySelectorAll('thead .heads th[data-sortable]').forEach((th, idx) => {
+        th.addEventListener('click', () => {
+            const cur = th.getAttribute('data-sort-dir');
+            const dir = cur === 'asc' ? 'desc' : 'asc';
+            table.querySelectorAll('thead .heads th').forEach(o => o.removeAttribute('data-sort-dir'));
+            th.setAttribute('data-sort-dir', dir);
+
+            const type = th.getAttribute('data-type') || 'text';
+            const rows = Array.from(tbody.querySelectorAll('tr'));
+            rows.sort((a, b) => {
+                const av = (a.children[idx]?.textContent || '').trim();
+                const bv = (b.children[idx]?.textContent || '').trim();
+                if (type === 'num') {
+                    const an = parseFloat(av.replace(/[^0-9.\-+eE]/g, '')) || 0;
+                    const bn = parseFloat(bv.replace(/[^0-9.\-+eE]/g, '')) || 0;
+                    return dir === 'asc' ? an - bn : bn - an;
+                }
+                return dir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
+            });
+            rows.forEach(r => tbody.appendChild(r));
+        });
+    });
+
+    // Excel-style cell selection. Click a cell to select; click first column (id) to select row.
+    tbody.addEventListener('click', (ev) => {
+        const td = ev.target.closest('td');
+        if (!td) return;
+        // Clear any prior selection
+        tbody.querySelectorAll('.is-selected').forEach(el => el.classList.remove('is-selected'));
+        // First column → select entire row
+        if (td.cellIndex === 0) {
+            td.parentElement.classList.add('is-selected');
+        } else {
+            td.classList.add('is-selected');
+        }
+    });
+
+    // Esc clears selection
+    document.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Escape') {
+            tbody.querySelectorAll('.is-selected').forEach(el => el.classList.remove('is-selected'));
+        }
+    });
+
+    // Event-type toggle: live visual feedback (.is-on follows the checkbox)
+    document.querySelectorAll('.evt-toggle input[type=checkbox]').forEach(cb => {
+        cb.addEventListener('change', () => {
+            cb.parentElement.classList.toggle('is-on', cb.checked);
+        });
+    });
+})();
+</script>
+{% endblock %}

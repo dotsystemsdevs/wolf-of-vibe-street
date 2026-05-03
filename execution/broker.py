@@ -80,16 +80,22 @@ class Broker(Protocol):
     def open_orders(self) -> list[Order]: ...
 
 
-def make_client_order_id(strategy_id: str, signal_id: str, attempt: int = 0) -> str:
+def make_client_order_id(
+    strategy_id: str, symbol: str, signal_id: str, attempt: int = 0
+) -> str:
     """Deterministic ID for I-3 idempotency.
 
-    Same (strategy_id, signal_id, attempt) → same ID. A retried place() with the same
-    ID must not double-fill — paper broker enforces this by caching by coid; live
-    brokers (Kraken, Binance) all reject duplicate client order IDs.
+    Same (strategy_id, symbol, signal_id, attempt) → same ID. A retried place() with
+    the same ID must not double-fill — paper broker enforces this by caching by coid;
+    live brokers (Kraken, Binance) all reject duplicate client order IDs.
+
+    `symbol` is part of the key because multi-symbol runs can have signals at the same
+    bar timestamp across symbols — without symbol in the hash, BTC and ETH BUYs at
+    16:00 would collide and the second one would silently return the first one's fill.
 
     Returns first 32 hex chars of SHA-256 (fits Binance/Kraken length limits).
     """
-    if not strategy_id or not signal_id:
-        raise ValueError("strategy_id and signal_id must both be non-empty")
-    raw = f"{strategy_id}:{signal_id}:{attempt}"
+    if not strategy_id or not symbol or not signal_id:
+        raise ValueError("strategy_id, symbol, and signal_id must all be non-empty")
+    raw = f"{strategy_id}:{symbol}:{signal_id}:{attempt}"
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:32]

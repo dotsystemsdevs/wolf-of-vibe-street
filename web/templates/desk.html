@@ -1,0 +1,541 @@
+{% extends "base.html" %}
+{% from "_macros.html" import divider, section_head, kpi %}
+
+{% block content %}
+<div class="page">
+
+    <header class="pb-8">
+        <h1 class="text-[30px] font-semibold tracking-tight">Desk</h1>
+    </header>
+
+    {% if no_data %}
+    <div class="mb-6 rounded-lg border border-line bg-card px-4 py-3 text-[12px] text-ink2">
+        No decision log yet at <code class="font-mono text-ink3">{{ log_path }}</code>.
+        Start the loop in <a href="/settings" class="text-ink underline decoration-line2 underline-offset-4">Settings</a>.
+    </div>
+    {% endif %}
+
+    {# Critical errors only — full health checks ship as part of the dashboard, no separate page. #}
+    {% set error_checks = health_checks | selectattr("status", "equalto", "error") | list %}
+    {% if error_checks %}
+    <section class="mb-6 rounded-lg border border-red-500/40 bg-red-500/[0.06] px-4 py-3">
+        <div class="flex justify-between items-baseline mb-2">
+            <span class="text-[10px] font-semibold tracking-[0.1em] uppercase text-red-400">
+                {{ error_checks|length }} error{% if error_checks|length > 1 %}s{% endif %} need attention
+            </span>
+            <a href="/settings" class="text-[11px] text-red-300 hover:text-red-200 underline decoration-red-500/40 underline-offset-4">
+                Open settings →
+            </a>
+        </div>
+        <div class="space-y-1 font-mono text-[11px]">
+            {% for c in error_checks %}
+            <div class="flex items-baseline gap-2">
+                <span class="text-red-500 font-bold">[ERR]</span>
+                <span class="text-ink whitespace-nowrap">{{ c.name }}</span>
+                <span class="text-ink2 truncate">— {{ c.message }}</span>
+            </div>
+            {% endfor %}
+        </div>
+    </section>
+    {% endif %}
+
+    {{ divider() }}
+
+    {# ============================================================
+       STATUS — Pulse + KPIs merged into one compact block
+       ============================================================ #}
+    <section class="py-8">
+        {{ section_head("Status",
+            strategy_id + " · " + (all_symbols|join(", ") if all_symbols else symbol) + " · " + timeframe) }}
+
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+            {% set eq_sign = 'pos' if kpis.equity_delta > 0 else ('neg' if kpis.equity_delta < 0 else '') %}
+            {{ kpi("Equity",
+                   "${:,.2f}".format(kpis.equity),
+                   "{:+.2f}% · ${:+,.2f}".format(kpis.equity_pct, kpis.equity_delta),
+                   eq_sign) }}
+
+            {% set cash_sign = 'pos' if kpis.cash_delta > 0 else ('neg' if kpis.cash_delta < 0 else '') %}
+            {{ kpi("Cash",
+                   "${:,.2f}".format(kpis.cash),
+                   "{:+,.2f} from start".format(kpis.cash_delta),
+                   cash_sign) }}
+
+            {% set day_sign = 'pos' if kpis.today_pnl > 0 else ('neg' if kpis.today_pnl < 0 else '') %}
+            {{ kpi("Today P&amp;L",
+                   "${:+,.2f}".format(kpis.today_pnl),
+                   "UTC day",
+                   day_sign) }}
+
+            {{ kpi("Open positions",
+                   "{}".format(kpis.open_positions),
+                   "{} trades · {:.0f}% win".format(kpis.trades, kpis.win_rate),
+                   '') }}
+        </div>
+
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3">
+            <div class="bg-card border border-line rounded-lg px-4 py-3">
+                <div class="text-[10px] font-semibold tracking-[0.1em] uppercase text-ink3">Signals total</div>
+                <div class="font-mono text-base font-bold tabular-nums mt-1 text-ink">{{ pulse.signals_total }}</div>
+                <div class="font-mono text-[11px] mt-0.5 text-ink3">
+                    {{ pulse.holds }}h · {{ pulse.buys }}b · {{ pulse.sells }}s
+                </div>
+            </div>
+
+            <div class="bg-card border border-line rounded-lg px-4 py-3">
+                <div class="text-[10px] font-semibold tracking-[0.1em] uppercase text-ink3">Last signal</div>
+                <div class="font-mono text-base font-bold tabular-nums mt-1
+                    {% if pulse.last_signal == 'buy' %}text-green-500
+                    {% elif pulse.last_signal == 'sell' %}text-red-500
+                    {% else %}text-ink{% endif %}">
+                    {{ (pulse.last_signal or "—")|upper }}
+                </div>
+                <div class="font-mono text-[11px] mt-0.5 text-ink3">
+                    {% if pulse.last_signal_min_ago is not none %}{{ pulse.last_signal_min_ago }} min ago{% else %}none yet{% endif %}
+                </div>
+            </div>
+
+            <div class="bg-card border border-line rounded-lg px-4 py-3">
+                <div class="text-[10px] font-semibold tracking-[0.1em] uppercase text-ink3">Regimes ({{ all_symbols|length }} sym)</div>
+                {% set up = pulse.regimes.uptrend %}
+                {% set side = pulse.regimes.sideways %}
+                {% set down = pulse.regimes.downtrend %}
+                <div class="font-mono text-base font-bold tabular-nums mt-1 flex items-center gap-2">
+                    <span class="text-green-500">{{ up }}↑</span>
+                    <span class="text-ink2">{{ side }}↔</span>
+                    <span class="text-red-500">{{ down }}↓</span>
+                </div>
+                <div class="font-mono text-[11px] mt-0.5 text-ink3">
+                    {% if up > down %}bullish skew{% elif down > up %}bearish skew{% else %}balanced{% endif %}
+                </div>
+            </div>
+
+            <div class="bg-card border border-line rounded-lg px-4 py-3">
+                <div class="text-[10px] font-semibold tracking-[0.1em] uppercase text-ink3">Next bar</div>
+                <div class="font-mono text-base font-bold tabular-nums mt-1 text-ink">
+                    {% if pulse.next_bar_min is not none %}{{ pulse.next_bar_min }} min{% else %}—{% endif %}
+                </div>
+                <div class="font-mono text-[11px] mt-0.5 text-ink3">
+                    {{ timeframe }} bar close
+                </div>
+            </div>
+        </div>
+
+        {# Performance metrics row — moved up here so the operator sees PnL,
+           PF, Sharpe, Max DD etc. in the same scan as the KPI + pulse cards.
+           Shows "—" when there's not enough data yet (need ≥1 closed trade for PF). #}
+        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mt-3">
+            {% set pf = perf.profit_factor %}
+            {% set pf_sign = 'pos' if pf and pf > 1.5 and not pf|string == 'inf' else ('neg' if pf and pf < 1.0 else '') %}
+            {% if pf is none %}{% set pf_label = '—' %}
+            {% elif pf|string == 'inf' %}{% set pf_label = '∞' %}
+            {% else %}{% set pf_label = "{:.2f}".format(pf) %}{% endif %}
+            {{ kpi("Profit factor", pf_label, "wins / losses ratio", pf_sign) }}
+
+            {% set sh_sign = 'pos' if perf.sharpe and perf.sharpe > 1.0 else ('neg' if perf.sharpe and perf.sharpe < 0 else '') %}
+            {{ kpi("Sharpe",
+                   "{:+.2f}".format(perf.sharpe) if perf.sharpe is not none else "—",
+                   "annualized", sh_sign) }}
+
+            {{ kpi("Max DD",
+                   "{:.2f}%".format(perf.max_dd_pct) if perf.max_dd_pct is not none else "—",
+                   "peak to trough", "neg" if perf.max_dd_pct and perf.max_dd_pct > 5 else '') }}
+
+            {% set exp_sign = 'pos' if perf.expectancy and perf.expectancy > 0 else ('neg' if perf.expectancy and perf.expectancy < 0 else '') %}
+            {{ kpi("Expectancy",
+                   "${:+.2f}".format(perf.expectancy) if perf.expectancy is not none else "—",
+                   "avg per trade", exp_sign) }}
+
+            {% set r_sign = 'pos' if perf.avg_r and perf.avg_r > 0 else ('neg' if perf.avg_r and perf.avg_r < 0 else '') %}
+            {{ kpi("Avg R",
+                   "{:+.2f}R".format(perf.avg_r) if perf.avg_r is not none else "—",
+                   "risk-adjusted", r_sign) }}
+
+            {{ kpi("Fees paid",
+                   "${:.2f}".format(perf.fees_total) if perf.fees_total is not none else "$0.00",
+                   "{:.2f}% of capital".format(perf.fees_total / initial_cash * 100) if perf.fees_total else "0% of capital",
+                   '') }}
+        </div>
+
+        {% if pulse.signals_total > 0 and pulse.buys == 0 and pulse.sells == 0 %}
+        <div class="mt-3 rounded-md border border-line bg-card2 px-4 py-2.5 text-[11px] text-ink2">
+            <strong class="text-ink">Strategy is in observation mode.</strong>
+            All {{ pulse.signals_total }} signals so far have been <code class="font-mono">hold</code> —
+            no trigger yet. The bot fires a buy/sell only when conditions cross.
+        </div>
+        {% endif %}
+    </section>
+
+    {# ============================================================
+       MARKETS — combined chart + strategy chip per symbol.
+       Sits directly under Status with no divider so the operator's eye
+       flows from "what's going on globally" → "per symbol" without a break.
+       Replaces the previous separate Symbols + Price sections.
+       ============================================================ #}
+    {% if price_charts %}
+    <section class="py-6">
+        {% set total_markers = namespace(n=0) %}
+        {% for pc in price_charts %}{% set total_markers.n = total_markers.n + (pc.markers|length) %}{% endfor %}
+        {% set strategy_counts = namespace(d={}) %}
+        {% for sym, sid in strategy_by_symbol.items() %}
+            {% set _ = strategy_counts.d.update({sid: strategy_counts.d.get(sid, 0) + 1}) %}
+        {% endfor %}
+        {{ section_head("Markets",
+            (price_charts|length|string) + " symbols · " + timeframe + " · " +
+            (total_markers.n|string) + " trades · " +
+            (strategy_counts.d.items() | list | map("join", "×") | join(" · "))) }}
+
+        <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-2">
+            {% for pc in price_charts %}
+            {% set sid = strategy_by_symbol.get(pc.symbol, "") %}
+            {% set short = sid|replace("regime_aware_dipbuy", "Dipbuy")|replace("union_meanrev_breakout", "Union")|replace("regime_aware_aggressive", "Aggr")|replace("regime_aware", "RA") %}
+            {% set tone = "blue" if "dipbuy" in sid else ("violet" if "union" in sid else "neutral") %}
+            <div class="bg-card border border-line rounded-lg overflow-hidden flex flex-col hover:border-line2 transition-colors">
+                <div class="flex items-center justify-between gap-2 px-2.5 py-1.5 border-b border-line">
+                    <span class="font-mono text-[10.5px] font-semibold text-ink truncate">{{ pc.symbol.split("/")[0] }}</span>
+                    <span class="chip chip--{{ tone }}" style="font-size: 9px; padding: 1px 5px;">{{ short }}</span>
+                </div>
+                <div id="price-chart-{{ pc.slug }}" class="h-[140px]"></div>
+                {% if pc.markers|length > 0 %}
+                <div class="px-2.5 py-1 border-t border-line bg-card2/40 font-mono text-[9.5px] text-ink3">
+                    {{ pc.markers|length }} trade{% if pc.markers|length != 1 %}s{% endif %}
+                </div>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+
+        <div class="flex items-center gap-4 mt-3 text-[11px] font-mono text-ink3">
+            <span class="inline-flex items-center gap-1.5">
+                <svg class="size-3" viewBox="0 0 12 12"><path d="M6 2 L10 8 L2 8 Z" fill="#22c55e"/></svg> Buy
+            </span>
+            <span class="inline-flex items-center gap-1.5">
+                <svg class="size-3" viewBox="0 0 12 12"><path d="M6 10 L2 4 L10 4 Z" fill="#ef4444"/></svg> Sell
+            </span>
+            <span class="ml-auto">Wheel to zoom · drag to pan</span>
+        </div>
+    </section>
+    {% endif %}
+
+    {{ divider() }}
+
+    {# ============================================================
+       EQUITY — strategy equity curve. Performance metrics moved up to Status.
+       ============================================================ #}
+    <section class="py-8">
+        {{ section_head("Equity", "{} trades · {}W / {}L".format(kpis.trades, kpis.wins, kpis.losses)) }}
+        <div id="equity-chart" class="bg-card border border-line rounded-lg h-[280px] overflow-hidden"></div>
+    </section>
+
+    {{ divider() }}
+
+    {# ============================================================
+       OPEN POSITIONS
+       ============================================================ #}
+    <section class="py-8">
+        {% set exposure_sub = (
+            (positions|length|string) + " active · " +
+            "{:.1f}".format(perf.exposure_pct) + "% exposure"
+        ) if perf.exposure_pct is not none else (positions|length|string) + " active" %}
+        {{ section_head("Open positions", exposure_sub) }}
+        {% if positions %}
+        <div class="sheet-wrap" style="max-height: none;">
+            <table class="sheet">
+                <thead>
+                    <tr class="heads">
+                        <th>Symbol</th>
+                        <th>Qty</th>
+                        <th>Notional</th>
+                        <th>Entry</th>
+                        <th>Last</th>
+                        <th>Stop</th>
+                        <th>→ Stop</th>
+                        <th>Target</th>
+                        <th>→ Target</th>
+                        <th>P&amp;L</th>
+                        <th>P&amp;L %</th>
+                        <th>Age</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for p in positions %}
+                    {% set u_sign = 'pos' if p.unrealized_pnl > 0 else ('neg' if p.unrealized_pnl < 0 else 'muted') %}
+                    <tr>
+                        <td>{{ p.symbol }}</td>
+                        <td class="num">{{ "{:.6f}".format(p.qty) }}</td>
+                        <td class="num muted">${{ "{:,.2f}".format(p.notional) }}</td>
+                        <td class="num">${{ "{:,.2f}".format(p.avg_entry) }}</td>
+                        <td class="num muted">${{ "{:,.2f}".format(p.last_price) }}</td>
+                        <td class="num muted">{% if p.stop %}${{ "{:,.2f}".format(p.stop|float) }}{% else %}—{% endif %}</td>
+                        <td class="num {% if p.dist_stop_pct is not none and p.dist_stop_pct < 1 %}neg{% else %}muted{% endif %}">
+                            {% if p.dist_stop_pct is not none %}{{ "{:.2f}".format(p.dist_stop_pct) }}%{% else %}—{% endif %}
+                        </td>
+                        <td class="num muted">{% if p.target %}${{ "{:,.2f}".format(p.target|float) }}{% else %}—{% endif %}</td>
+                        <td class="num {% if p.dist_target_pct is not none and p.dist_target_pct < 1 %}pos{% else %}muted{% endif %}">
+                            {% if p.dist_target_pct is not none %}{{ "{:.2f}".format(p.dist_target_pct) }}%{% else %}—{% endif %}
+                        </td>
+                        <td class="num {{ u_sign }}">{{ "{:+,.2f}".format(p.unrealized_pnl) }}</td>
+                        <td class="num {{ u_sign }}">{{ "{:+.2f}".format(p.pnl_pct) }}%</td>
+                        <td class="num muted">{% if p.age_min is not none %}{{ p.age_min }}m{% else %}—{% endif %}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="rounded-lg border border-line border-dashed bg-card px-6 py-8 text-center text-[12px] text-ink3">
+            No open positions.
+        </div>
+        {% endif %}
+    </section>
+
+    {# ============================================================
+       RECENT TRADES
+       ============================================================ #}
+    {% if recent_trades %}
+    {{ divider() }}
+    <section class="py-8">
+        {{ section_head("Recent trades", "last " + (recent_trades|length|string) + " · R = pnl / initial risk") }}
+        <div class="sheet-wrap" style="max-height: none;">
+            <table class="sheet">
+                <thead>
+                    <tr class="heads">
+                        <th>Time</th>
+                        <th>Symbol</th>
+                        <th>Hold</th>
+                        <th>Qty</th>
+                        <th>Entry</th>
+                        <th>Exit</th>
+                        <th>P&amp;L</th>
+                        <th>%</th>
+                        <th>R</th>
+                        <th>Reason</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for t in recent_trades %}
+                    {% set p_sign = 'pos' if t.pnl > 0 else ('neg' if t.pnl < 0 else 'muted') %}
+                    {% set reason_class = {
+                        "stop_hit": "reject", "target_hit": "fill",
+                        "signal_exit": "signal", "end_of_data": "default"
+                    }.get(t.reason, "default") %}
+                    <tr>
+                        <td class="muted">{{ t.ts }}</td>
+                        <td>{{ t.symbol }}</td>
+                        <td class="num muted">
+                            {% if t.holding_min < 60 %}{{ t.holding_min }}m
+                            {% elif t.holding_min < 1440 %}{{ (t.holding_min / 60)|round(1) }}h
+                            {% else %}{{ (t.holding_min / 1440)|round(1) }}d{% endif %}
+                        </td>
+                        <td class="num">{{ "{:.6f}".format(t.qty) }}</td>
+                        <td class="num muted">${{ "{:,.2f}".format(t.entry) }}</td>
+                        <td class="num muted">${{ "{:,.2f}".format(t.exit) }}</td>
+                        <td class="num {{ p_sign }}">{{ "{:+,.2f}".format(t.pnl) }}</td>
+                        <td class="num {{ p_sign }}">{{ "{:+.2f}".format(t.pct) }}%</td>
+                        <td class="num {% if t.r_multiple is not none and t.r_multiple > 0 %}pos
+                                       {% elif t.r_multiple is not none and t.r_multiple < 0 %}neg
+                                       {% else %}muted{% endif %}">
+                            {% if t.r_multiple is not none %}{{ "{:+.2f}".format(t.r_multiple) }}R{% else %}—{% endif %}
+                        </td>
+                        <td><span class="evt-chip evt-chip--{{ reason_class }}">{{ t.reason }}</span></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+    {% endif %}
+
+    {# ============================================================
+       ACTIVITY — full event log, lower on the page
+       ============================================================ #}
+    {% if activity %}
+    {{ divider() }}
+    <section class="py-8">
+        {{ section_head("Activity", "Last " + (activity|length|string) + " events") }}
+        <div class="bg-card border border-line rounded-lg overflow-hidden">
+            <ul class="divide-y divide-line">
+                {% for a in activity %}
+                {% set evt_cls = {
+                    "order_filled": "fill", "order_rejected": "reject",
+                    "risk_block": "block", "order_placed": "place",
+                    "reconcile": "recon", "signal": "signal"
+                }.get(a.event, "default") %}
+                <li class="px-4 py-2 flex items-center gap-3 hover:bg-card2 transition-colors text-[12px]">
+                    <span class="font-mono text-[10.5px] text-ink3 tabular-nums w-[60px] shrink-0">{{ a.time }}</span>
+                    <span class="evt-chip evt-chip--{{ evt_cls }} shrink-0">{{ a.event }}</span>
+                    {% if a.symbol %}<span class="font-mono text-ink shrink-0">{{ a.symbol }}</span>{% endif %}
+                    {% if a.side %}
+                    <span class="font-mono text-[10.5px] uppercase tracking-wider shrink-0
+                        {% if a.side == 'buy' %}text-green-500
+                        {% elif a.side == 'sell' %}text-red-500
+                        {% else %}text-ink3{% endif %}">{{ a.side }}</span>
+                    {% endif %}
+                    {% if a.price is not none %}
+                    <span class="font-mono text-[11px] text-ink2 tabular-nums shrink-0">${{ "{:,.2f}".format(a.price|float) }}</span>
+                    {% endif %}
+                    {% if a.qty is not none %}
+                    <span class="font-mono text-[10.5px] text-ink3 tabular-nums shrink-0">{{ "{:.6f}".format(a.qty|float) }}</span>
+                    {% endif %}
+                    <span class="text-[11px] text-ink3 truncate" title="{{ a.rationale }}">{{ a.rationale }}</span>
+                </li>
+                {% endfor %}
+            </ul>
+        </div>
+        <div class="text-[11px] text-ink3 mt-2 text-right">
+            <a href="/tape" class="hover:text-ink underline decoration-line2 underline-offset-4">See full tape →</a>
+        </div>
+    </section>
+    {% endif %}
+
+    {{ divider() }}
+
+    <footer class="pt-6 mt-2 text-[10.5px] font-mono text-ink3 flex justify-between flex-wrap gap-2">
+        <span>Build {{ build }}</span>
+        <span>Initial cash ${{ "{:,.0f}".format(initial_cash) }}</span>
+    </footer>
+</div>
+
+<script>
+(function() {
+  if (!window.LightweightCharts) return;
+
+  const priceData = {{ price_charts | tojson }};
+  const equity = {{ equity_data | tojson }};
+
+  // Build chart options + series from the current theme. Stored in the closure so
+  // `themechange` can repaint without rebuilding the chart.
+  function chartOptions() {
+    const t = window.getChartTheme();
+    return {
+      layout: {
+        background: { type: 'solid', color: t.bg },
+        textColor: t.text,
+        fontFamily: '"JetBrains Mono", ui-monospace, monospace',
+        fontSize: 11,
+      },
+      grid: { vertLines: { color: t.grid }, horzLines: { color: t.grid } },
+      rightPriceScale: { borderColor: t.border },
+      timeScale: { borderColor: t.border, timeVisible: true, secondsVisible: false },
+      crosshair: { mode: 0 },
+    };
+  }
+
+  function recolorMarkers(markers) {
+    const t = window.getChartTheme();
+    return markers.map(m => ({
+      ...m,
+      color: m.position === 'belowBar' ? t.up : t.down,
+    }));
+  }
+
+  const charts = [];
+
+  // ---------- Per-symbol price charts ----------
+  // Defer chart init until layout has completed — grid columns may not have
+  // measurable widths at script-execution time, especially with web font load.
+  function initPriceCharts() {
+    priceData.forEach(pc => {
+      const el = document.getElementById('price-chart-' + pc.slug);
+      if (!el) return;
+      if (!pc.candles || pc.candles.length === 0) {
+        el.innerHTML = '<div class="h-full flex items-center justify-center text-ink3 font-mono text-[11px]">'
+          + 'No bars yet for ' + pc.symbol + '</div>';
+        return;
+      }
+      const t = window.getChartTheme();
+      // Pass explicit width/height — autoSize had reliability issues in some browsers
+      // with grid layout. clientWidth/Height read AFTER load is reliable.
+      const opts = chartOptions();
+      opts.width = el.clientWidth || 400;
+      opts.height = el.clientHeight || 260;
+      const chart = LightweightCharts.createChart(el, opts);
+      const series = chart.addCandlestickSeries({
+        upColor: t.up, downColor: t.down,
+        borderUpColor: t.up, borderDownColor: t.down,
+        wickUpColor: t.up, wickDownColor: t.down,
+        priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
+      });
+      series.setData(pc.candles);
+      if (pc.markers && pc.markers.length) series.setMarkers(recolorMarkers(pc.markers));
+      chart.timeScale().fitContent();
+      const resize = () => chart.applyOptions({ width: el.clientWidth, height: el.clientHeight });
+      resize();
+      window.addEventListener('resize', resize);
+      // ResizeObserver as belt-and-suspenders — fires when grid column changes width
+      // (e.g. window resize, sidebar collapse, etc.).
+      if (window.ResizeObserver) {
+        new ResizeObserver(resize).observe(el);
+      }
+      charts.push(() => {
+        const t = window.getChartTheme();
+        chart.applyOptions(chartOptions());
+        series.applyOptions({
+          upColor: t.up, downColor: t.down,
+          borderUpColor: t.up, borderDownColor: t.down,
+          wickUpColor: t.up, wickDownColor: t.down,
+        });
+        if (pc.markers && pc.markers.length) series.setMarkers(recolorMarkers(pc.markers));
+      });
+    });
+  }
+  if (document.readyState === 'complete') {
+    initPriceCharts();
+  } else {
+    window.addEventListener('load', initPriceCharts);
+  }
+
+  // ---------- Equity curve ----------
+  // Same deferred-init pattern as price charts — clientWidth is unreliable until layout completes.
+  function initEquityChart() {
+    const eqEl = document.getElementById('equity-chart');
+    if (!eqEl) return;
+    if (!equity || equity.length === 0) {
+      eqEl.innerHTML = '<div class="h-full flex items-center justify-center text-ink3 font-mono text-[11px]">'
+        + 'No fills yet — chart populates after the first trade.</div>';
+      return;
+    }
+    const t = window.getChartTheme();
+    const opts = {
+      ...chartOptions(),
+      handleScroll: false, handleScale: false,
+    };
+    opts.width = eqEl.clientWidth || 800;
+    opts.height = eqEl.clientHeight || 280;
+    const eqChart = LightweightCharts.createChart(eqEl, opts);
+    const eqSeries = eqChart.addAreaSeries({
+      lineColor: t.line,
+      topColor: t.areaTop,
+      bottomColor: t.areaBottom,
+      lineWidth: 2,
+      priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
+    });
+    eqSeries.setData(equity);
+    eqChart.timeScale().fitContent();
+    const resize = () => eqChart.applyOptions({ width: eqEl.clientWidth, height: eqEl.clientHeight });
+    resize();
+    window.addEventListener('resize', resize);
+    if (window.ResizeObserver) {
+      new ResizeObserver(resize).observe(eqEl);
+    }
+    charts.push(() => {
+      const t = window.getChartTheme();
+      eqChart.applyOptions(chartOptions());
+      eqSeries.applyOptions({
+        lineColor: t.line,
+        topColor: t.areaTop,
+        bottomColor: t.areaBottom,
+      });
+    });
+  }
+  if (document.readyState === 'complete') {
+    initEquityChart();
+  } else {
+    window.addEventListener('load', initEquityChart);
+  }
+
+  // Repaint every registered chart on theme toggle.
+  document.addEventListener('themechange', () => charts.forEach(fn => fn()));
+})();
+</script>
+{% endblock %}

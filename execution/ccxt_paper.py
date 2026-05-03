@@ -30,6 +30,35 @@ class PaperBroker(Broker):
         self._positions: dict[str, Position] = {}
         self._fills_by_coid: dict[str, Fill] = {}
 
+    def restore_from_fills(self, fill_rows: list[dict]) -> None:
+        """Rebuild positions + COID idempotency cache from logged fills.
+
+        Paper broker state is in-memory; without this, every loop restart wipes
+        positions and reconcile-on-startup fails ("broker=0 log=N"). Called by
+        build_from_env on startup to bring the broker into sync with the audit
+        log. Idempotent — safe to call multiple times.
+        """
+        self._positions.clear()
+        self._fills_by_coid.clear()
+        for r in fill_rows:
+            if r.get("event_type") != "order_filled":
+                continue
+            try:
+                f = Fill(
+                    client_order_id=str(r["client_order_id"] or ""),
+                    timestamp_ms=int(r["timestamp_ms"]),
+                    symbol=str(r["symbol"]),
+                    side=str(r["side"]),
+                    quantity=float(r["quantity"]),
+                    price=float(r["price"]),
+                    fee=0.0,  # fee is in metadata; not needed for position reconstruction
+                )
+            except (TypeError, ValueError, KeyError):
+                continue
+            if f.client_order_id:
+                self._fills_by_coid[f.client_order_id] = f
+            self._update_position(f)
+
     def place(
         self,
         order: Order,

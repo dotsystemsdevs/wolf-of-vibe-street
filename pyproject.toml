@@ -6,10 +6,13 @@ requires-python = ">=3.12"
 dependencies = [
     "anthropic>=0.97.0",
     "ccxt>=4.5.50",
+    "fastapi>=0.136.1",
+    "jinja2>=3.1.6",
     "pandas>=3.0.2",
     "plotly>=6.7.0",
     "pyarrow>=24.0.0",
-    "streamlit>=1.56.0",
+    "python-multipart>=0.0.26",
+    "uvicorn>=0.46.0",
 ]
 
 [dependency-groups]

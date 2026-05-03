@@ -73,3 +73,53 @@ def test_partial_close_preserves_avg_entry() -> None:
     pos = b.positions()[0]
     assert pos.quantity == 1.0
     assert pos.avg_entry_price == 100.0
+
+
+def test_restore_from_fills_rebuilds_positions_and_coid_cache() -> None:
+    """Reopening a paper-broker after a restart must reconstruct positions
+    + COID idempotency cache from the audit log, otherwise reconcile fails:
+    log says 'have 1 BTC' while broker says 'have nothing' (real bug 2026-05-02).
+    """
+    fills = [
+        {"event_type": "order_filled", "client_order_id": "c1", "timestamp_ms": 1,
+         "symbol": "BTC/USDT", "side": "buy", "quantity": 1.0, "price": 100.0},
+        {"event_type": "order_filled", "client_order_id": "c2", "timestamp_ms": 2,
+         "symbol": "ETH/USDT", "side": "buy", "quantity": 5.0, "price": 50.0},
+        {"event_type": "signal", "symbol": "BTC/USDT"},
+        {"event_type": "order_filled", "client_order_id": "c3", "timestamp_ms": 3,
+         "symbol": "BTC/USDT", "side": "sell", "quantity": 1.0, "price": 110.0},
+    ]
+    b = _broker(slippage=0.0, commission=0.0)
+    b.restore_from_fills(fills)
+    pos = {p.symbol: p for p in b.positions()}
+    assert "BTC/USDT" not in pos
+    assert pos["ETH/USDT"].quantity == 5.0
+    cached = b.place(Order("c2", "ETH/USDT", "buy", 999.0))
+    assert cached.quantity == 5.0
+    assert pos["ETH/USDT"].quantity == 5.0
+
+
+def test_restore_from_fills_is_idempotent() -> None:
+    """Calling restore twice must not duplicate the position."""
+    fills = [
+        {"event_type": "order_filled", "client_order_id": "c1", "timestamp_ms": 1,
+         "symbol": "BTC/USDT", "side": "buy", "quantity": 2.0, "price": 100.0},
+    ]
+    b = _broker()
+    b.restore_from_fills(fills)
+    b.restore_from_fills(fills)
+    assert b.positions()[0].quantity == 2.0
+
+
+def test_restore_from_fills_skips_malformed_rows() -> None:
+    """A corrupt log row should not crash the rebuild — skip it silently."""
+    fills = [
+        {"event_type": "order_filled", "client_order_id": "c1", "timestamp_ms": 1,
+         "symbol": "BTC/USDT", "side": "buy", "quantity": 1.0, "price": 100.0},
+        {"event_type": "order_filled", "client_order_id": "c-bad",
+         "symbol": "ETH/USDT", "side": "buy", "quantity": "not-a-number", "price": 50.0},
+    ]
+    b = _broker()
+    b.restore_from_fills(fills)
+    assert len(b.positions()) == 1
+    assert b.positions()[0].symbol == "BTC/USDT"

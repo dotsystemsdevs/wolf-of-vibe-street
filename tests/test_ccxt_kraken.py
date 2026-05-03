@@ -102,7 +102,7 @@ def test_expected_dry_run_synthesizes_fill_without_calling_exchange(
     fake = _FakeCCXT()
     broker = KrakenBroker(api_key="k", api_secret="s", exchange=fake, dry_run=True)
 
-    coid = make_client_order_id("test", "sig1")
+    coid = make_client_order_id("test", "BTC/USDT", "sig1")
     order = Order(client_order_id=coid, symbol="BTC/USDT", side="buy", quantity=0.01)
     fill = broker.place(order, mark_price=50_000.0, timestamp_ms=1)
 
@@ -116,7 +116,7 @@ def test_expected_dry_run_synthesizes_fill_without_calling_exchange(
 def test_edge_dry_run_idempotent_on_same_coid(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LIVE_TRADING", "true")
     broker = KrakenBroker(api_key="k", api_secret="s", exchange=_FakeCCXT(), dry_run=True)
-    coid = make_client_order_id("test", "sig1")
+    coid = make_client_order_id("test", "BTC/USDT", "sig1")
     order = Order(client_order_id=coid, symbol="BTC/USDT", side="buy", quantity=0.01)
     f1 = broker.place(order, mark_price=50_000.0, timestamp_ms=1)
     f2 = broker.place(order, mark_price=99_999.0, timestamp_ms=2)
@@ -127,7 +127,7 @@ def test_edge_dry_run_idempotent_on_same_coid(monkeypatch: pytest.MonkeyPatch) -
 def test_failure_dry_run_requires_mark_price(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LIVE_TRADING", "true")
     broker = KrakenBroker(api_key="k", api_secret="s", exchange=_FakeCCXT(), dry_run=True)
-    coid = make_client_order_id("test", "sig1")
+    coid = make_client_order_id("test", "BTC/USDT", "sig1")
     order = Order(client_order_id=coid, symbol="BTC/USDT", side="buy", quantity=0.01)
     with pytest.raises(ValueError, match="mark_price"):
         broker.place(order, mark_price=None, timestamp_ms=1)
@@ -149,7 +149,7 @@ def test_expected_place_passes_userref_to_ccxt(monkeypatch: pytest.MonkeyPatch) 
         }
     )
     broker = KrakenBroker(api_key="k", api_secret="s", exchange=fake)
-    coid = make_client_order_id("test", "sig1")
+    coid = make_client_order_id("test", "BTC/USDT", "sig1")
     order = Order(client_order_id=coid, symbol="BTC/USDT", side="buy", quantity=0.01)
     fill = broker.place(order, timestamp_ms=1)
 
@@ -174,7 +174,7 @@ def test_edge_place_returns_none_when_order_did_not_fill(
     fake = _FakeCCXT(order_response={"id": "x", "filled": 0.0, "average": None})
     broker = KrakenBroker(api_key="k", api_secret="s", exchange=fake)
     order = Order(
-        client_order_id=make_client_order_id("t", "s"),
+        client_order_id=make_client_order_id("t", "BTC/USDT", "s"),
         symbol="BTC/USDT",
         side="buy",
         quantity=0.01,
@@ -185,7 +185,7 @@ def test_edge_place_returns_none_when_order_did_not_fill(
 def test_edge_userref_fits_in_signed_32bit() -> None:
     """Kraken userref must be 0..2^31-1 for the various 32-char hex coids we generate."""
     for sig in ("sig1", "sig999999", "abc-def-123", "x" * 64):
-        coid = make_client_order_id("strategy", sig)
+        coid = make_client_order_id("strategy", "BTC/USDT", sig)
         u = _coid_to_userref(coid)
         assert 0 <= u <= 0x7FFFFFFF
 
@@ -240,7 +240,7 @@ def test_open_orders_parsing_skips_malformed() -> None:
 
 def test_response_to_fill_returns_none_on_zero_filled() -> None:
     order = Order(
-        client_order_id=make_client_order_id("t", "s"),
+        client_order_id=make_client_order_id("t", "BTC/USDT", "s"),
         symbol="BTC/USDT",
         side="buy",
         quantity=1.0,
@@ -257,7 +257,7 @@ def test_response_to_fill_returns_none_on_zero_filled() -> None:
 def test_expected_cancel_resolves_coid_via_userref(monkeypatch: pytest.MonkeyPatch) -> None:
     """cancel(coid) must fetch open orders, match userref, and call cancel_order on the match."""
     monkeypatch.setenv("LIVE_TRADING", "true")
-    coid = make_client_order_id("test", "sig1")
+    coid = make_client_order_id("test", "BTC/USDT", "sig1")
     expected_userref = _coid_to_userref(coid)
     fake = _FakeCCXT(
         open_orders=[
@@ -291,7 +291,7 @@ def test_expected_cancel_resolves_coid_via_userref(monkeypatch: pytest.MonkeyPat
 def test_edge_cancel_returns_false_when_no_match(monkeypatch: pytest.MonkeyPatch) -> None:
     """No open order with matching userref → return False, no cancel_order call."""
     monkeypatch.setenv("LIVE_TRADING", "true")
-    coid = make_client_order_id("test", "sig1")
+    coid = make_client_order_id("test", "BTC/USDT", "sig1")
     fake = _FakeCCXT(open_orders=[])
     broker = KrakenBroker(api_key="k", api_secret="s", exchange=fake)
     assert broker.cancel(coid) is False
@@ -301,7 +301,7 @@ def test_edge_cancel_returns_false_when_no_match(monkeypatch: pytest.MonkeyPatch
 def test_edge_cancel_falls_back_to_info_userref(monkeypatch: pytest.MonkeyPatch) -> None:
     """Some CCXT versions surface userref under info.userref, not params.userref."""
     monkeypatch.setenv("LIVE_TRADING", "true")
-    coid = make_client_order_id("test", "sig1")
+    coid = make_client_order_id("test", "BTC/USDT", "sig1")
     expected_userref = _coid_to_userref(coid)
     fake = _FakeCCXT(
         open_orders=[
@@ -325,7 +325,7 @@ def test_dry_run_cancel_drops_cached_fill(monkeypatch: pytest.MonkeyPatch) -> No
     """In dry_run, cancel(coid) must clear the cached fill so a re-place creates a new one."""
     monkeypatch.setenv("LIVE_TRADING", "true")
     broker = KrakenBroker(api_key="k", api_secret="s", exchange=_FakeCCXT(), dry_run=True)
-    coid = make_client_order_id("test", "sig1")
+    coid = make_client_order_id("test", "BTC/USDT", "sig1")
     order = Order(client_order_id=coid, symbol="BTC/USDT", side="buy", quantity=0.01)
     f1 = broker.place(order, mark_price=50_000.0, timestamp_ms=1)
     assert broker.cancel(coid) is True

@@ -1,0 +1,32 @@
+<header id="topbar"
+        class="sticky top-0 z-50 border-b border-line bg-card2 backdrop-blur"
+        hx-get="/topbar" hx-trigger="every 5s" hx-swap="outerHTML">
+    <div class="flex items-center gap-3 px-5 py-2.5 font-mono text-[11px]">
+        {# Mode pill — PAPER neutral, LIVE red. Solid bold for safety. #}
+        <span class="chip chip--{{ 'red' if topbar.mode_cls == 'live' else 'neutral' }}"
+              style="font-family: 'JetBrains Mono', monospace; letter-spacing: 0.1em;">{{ topbar.mode }}</span>
+
+        {# Loop status — solid green when running, neutral when idle, red when stopped. #}
+        <span class="chip chip--{% if topbar.status_cls == 'run' %}green{% elif topbar.status_cls == 'idle' %}neutral{% else %}red{% endif %}"
+              style="font-family: 'JetBrains Mono', monospace; letter-spacing: 0.1em;">{{ topbar.status_label }}</span>
+
+        <span class="flex-1"></span>
+
+        {# Error chip — only when something needs attention. Click → settings to investigate. #}
+        {% if topbar.err_count %}
+        <a href="/settings" class="chip chip--red hover:opacity-90 transition-opacity"
+           style="font-family: 'JetBrains Mono', monospace; letter-spacing: 0.05em;">
+            {{ topbar.err_count }} ERROR{% if topbar.err_count > 1 %}S{% endif %}
+        </a>
+        {% endif %}
+
+        <button type="button" class="theme-toggle" onclick="window.toggleTheme()" title="Toggle light / dark">
+            <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="4"></circle><path d="M12 2v2"></path><path d="M12 20v2"></path><path d="m4.93 4.93 1.41 1.41"></path><path d="m17.66 17.66 1.41 1.41"></path><path d="M2 12h2"></path><path d="M20 12h2"></path><path d="m6.34 17.66-1.41 1.41"></path><path d="m19.07 4.93-1.41 1.41"></path>
+            </svg>
+            <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+            </svg>
+        </button>
+    </div>
+</header>

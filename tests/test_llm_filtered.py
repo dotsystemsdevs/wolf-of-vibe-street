@@ -112,11 +112,40 @@ def test_claude_evaluator_is_configured_reads_env(monkeypatch: pytest.MonkeyPatc
     assert ClaudeEvaluator.is_configured() is True
 
 
-def test_claude_evaluator_default_model_is_opus_4_7(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Per skill rules: default to claude-opus-4-7 unless explicitly overridden."""
+def test_claude_evaluator_default_model_is_haiku(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Score-in-[-1,1] is a tiny task; Opus would be 15× more expensive for marginal
+    quality gain. Default to Haiku; operator can override via constructor when needed."""
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
     e = ClaudeEvaluator()
-    assert e.model == "claude-opus-4-7"
+    assert e.model == "claude-haiku-4-5"
+
+
+def test_verdict_cache_round_trip(tmp_path) -> None:
+    """Cache stores + retrieves verdicts keyed on (symbol, signal_id, prompt_version)."""
+    from agents.llm_cache import VerdictCache  # noqa: PLC0415
+    from agents.llm_evaluator import PROMPT_VERSION  # noqa: PLC0415
+
+    cache = VerdictCache(path=tmp_path / "cache.json")
+    assert cache.get("BTC/USDT", "1234", PROMPT_VERSION) is None
+
+    v = Verdict(score=0.7, rationale="clean setup", model="haiku", prompt_version=PROMPT_VERSION)
+    cache.put("BTC/USDT", "1234", PROMPT_VERSION, v)
+
+    # Round-trip via a fresh instance — confirms persistence across "process restarts"
+    fresh = VerdictCache(path=tmp_path / "cache.json")
+    got = fresh.get("BTC/USDT", "1234", PROMPT_VERSION)
+    assert got is not None
+    assert got["score"] == 0.7
+    assert got["rationale"] == "clean setup"
+
+
+def test_verdict_cache_invalidates_on_prompt_version_bump(tmp_path) -> None:
+    """When the prompt changes, old verdicts must NOT be served from cache."""
+    from agents.llm_cache import VerdictCache  # noqa: PLC0415
+
+    cache = VerdictCache(path=tmp_path / "cache.json")
+    cache.put("BTC/USDT", "1234", "v1-old", Verdict(score=1.0, rationale="old"))
+    assert cache.get("BTC/USDT", "1234", "v2-new") is None  # different version → miss
 
 
 def test_render_prompt_contains_key_fields() -> None:

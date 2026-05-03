@@ -24,20 +24,31 @@ def test_failure_limit_without_price_raises() -> None:
 
 def test_make_client_order_id_deterministic() -> None:
     """I-3: same inputs → same ID. That is the idempotency contract."""
-    a = make_client_order_id("baseline_ema_cross", "1234567890")
-    b = make_client_order_id("baseline_ema_cross", "1234567890")
+    a = make_client_order_id("baseline_ema_cross", "BTC/USDT", "1234567890")
+    b = make_client_order_id("baseline_ema_cross", "BTC/USDT", "1234567890")
     assert a == b
     assert len(a) == 32
 
 
 def test_make_client_order_id_different_attempts_distinct() -> None:
-    a = make_client_order_id("s", "sig", attempt=0)
-    b = make_client_order_id("s", "sig", attempt=1)
+    a = make_client_order_id("s", "BTC/USDT", "sig", attempt=0)
+    b = make_client_order_id("s", "BTC/USDT", "sig", attempt=1)
+    assert a != b
+
+
+def test_make_client_order_id_distinct_per_symbol() -> None:
+    """Multi-symbol: same bar timestamp on two symbols must NOT collide. (Real bug:
+    on a multi-symbol run both BUYs at 16:00 produced the same COID and the paper
+    broker's idempotency cache returned the first symbol's fill for the second.)"""
+    a = make_client_order_id("s", "BTC/USDT", "sig")
+    b = make_client_order_id("s", "ETH/USDT", "sig")
     assert a != b
 
 
 def test_make_client_order_id_rejects_empty() -> None:
     with pytest.raises(ValueError):
-        make_client_order_id("", "sig")
+        make_client_order_id("", "BTC/USDT", "sig")
     with pytest.raises(ValueError):
-        make_client_order_id("s", "")
+        make_client_order_id("s", "", "sig")
+    with pytest.raises(ValueError):
+        make_client_order_id("s", "BTC/USDT", "")

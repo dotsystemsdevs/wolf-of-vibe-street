@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
-# Start the live loop + dashboard with one command.
+# Start the live loop + FastAPI dashboard with one command.
 # Loop runs in the background under caffeinate (Mac doesn't sleep).
 # Dashboard runs in the foreground — Ctrl+C stops everything.
 #
 # Usage: ./dev-start.sh
 # Loop logs:   tail -f /tmp/traderbot-loop.log
-# Dashboard:   http://localhost:8501
+# Dashboard:   http://localhost:8000
 
 set -euo pipefail
 
 cd "$(dirname "$0")"
 
 LOG_FILE="${TRADERBOT_LOOP_LOG:-/tmp/traderbot-loop.log}"
-PORT="${TRADERBOT_PORT:-8501}"
+PORT="${TRADERBOT_PORT:-8000}"
 
 echo "================================================================"
 echo "   traderbot — dev start (paper mode)"
@@ -22,7 +22,6 @@ echo "  Loop log:   $LOG_FILE"
 echo "  Dashboard:  http://localhost:$PORT"
 echo "================================================================"
 
-# If port is already taken, refuse to start a second dashboard.
 if lsof -nP -iTCP:"$PORT" -sTCP:LISTEN 2>/dev/null | grep -q LISTEN; then
   echo
   echo "  ⚠  Port $PORT already in use — is the dashboard already running?"
@@ -48,7 +47,6 @@ caffeinate -di uv run python -m workers.live_loop > "$LOG_FILE" 2>&1 &
 LOOP_PID=$!
 echo "  PID: $LOOP_PID"
 
-# Give it a moment to bind the SQLite + log "starting" lines.
 sleep 2
 
 if ! kill -0 "$LOOP_PID" 2>/dev/null; then
@@ -59,10 +57,9 @@ if ! kill -0 "$LOOP_PID" 2>/dev/null; then
 fi
 
 echo
-echo "→ Starting dashboard..."
-echo "  Open http://localhost:$PORT in your browser if it doesn't open automatically."
+echo "→ Starting FastAPI dashboard on port $PORT..."
+echo "  Open http://localhost:$PORT in your browser."
 echo "  Press Ctrl+C to stop both processes."
 echo
 
-# Foreground; cleanup() fires on Ctrl+C and kills the loop.
-uv run streamlit run ui/dashboard.py --server.port "$PORT"
+uv run uvicorn web.main:app --host 127.0.0.1 --port "$PORT"

@@ -1,0 +1,309 @@
+{% extends "base.html" %}
+{% from "_macros.html" import pill %}
+
+{# Settings-specific card with optional danger-border. Title is intentionally 16px
+   (one step below the page-level `section_head` 18px) since each card is a self-
+   contained form, not a top-level section. #}
+{% macro card(title, desc, danger=False) %}
+<section class="rounded-lg border bg-card p-6 mb-4
+    {% if danger %}border-red-500/30{% else %}border-line{% endif %}">
+    <div class="mb-4">
+        <h2 class="text-[16px] font-semibold tracking-tight {% if danger %}text-red-400{% else %}text-ink{% endif %}">{{ title }}</h2>
+        <p class="text-[12.5px] text-ink2 mt-1 leading-relaxed">{{ desc }}</p>
+    </div>
+    {{ caller() }}
+</section>
+{% endmacro %}
+
+{% block content %}
+<div class="page">
+
+    <header class="pb-8">
+        <h1 class="text-[30px] font-semibold tracking-tight">Settings</h1>
+    </header>
+
+    {% if flash %}
+    <div class="mb-6 rounded-md border border-green-500/30 bg-green-500/[0.04] px-3.5 py-2.5 text-[12px] text-green-300 flex items-start gap-2">
+        <span class="size-1.5 rounded-full bg-green-500 mt-1.5 shrink-0"></span>{{ flash }}
+    </div>
+    {% endif %}
+    {% if flash_error %}
+    <div class="mb-6 rounded-md border border-red-500/30 bg-red-500/[0.04] px-3.5 py-2.5 text-[12px] text-red-300 flex items-start gap-2">
+        <span class="size-1.5 rounded-full bg-red-500 mt-1.5 shrink-0"></span>{{ flash_error }}
+    </div>
+    {% endif %}
+
+    {# ---------------- LOOP ---------------- #}
+    {% call card("Loop", "The live trader process. Restart to apply new .env values.") %}
+        <div class="flex items-center justify-between gap-4">
+            <div>
+                {% if loop_running %}{{ pill("Running", "green") }}
+                {% else %}{{ pill("Stopped", "neutral") }}{% endif %}
+            </div>
+            {% if loop_running %}
+            <form method="post" action="/settings/loop/stop">
+                <button class="btn-secondary">Stop loop</button>
+            </form>
+            {% else %}
+            <form method="post" action="/settings/loop/start">
+                <button class="btn-primary">Start loop</button>
+            </form>
+            {% endif %}
+        </div>
+    {% endcall %}
+
+    {# ---------------- SYMBOLS & STRATEGIES ---------------- #}
+    {% if strategy_by_symbol %}
+    {% call card("Symbols & strategies",
+        "Per-symbol strategy mapping. Edit TRADERBOT_SYMBOLS and TRADERBOT_STRATEGY_PER_SYMBOL in .env, then restart the loop to apply.") %}
+        <div class="space-y-3">
+            <div class="flex items-center gap-3 flex-wrap">
+                {{ pill((strategy_by_symbol|length|string) + " symbols", "neutral") }}
+                {{ pill((symbol_strategy_counts.dipbuy|string) + " dipbuy", "blue") }}
+                {{ pill((symbol_strategy_counts.union|string) + " union", "violet") }}
+            </div>
+            <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+                {% for sym, sid in strategy_by_symbol.items() | sort %}
+                {% set short = sid|replace("regime_aware_dipbuy", "Dipbuy")|replace("union_meanrev_breakout", "Union")|replace("regime_aware_aggressive", "Aggr") %}
+                {% set tone = "blue" if "dipbuy" in sid else ("violet" if "union" in sid else "neutral") %}
+                <div class="bg-card2 border border-line rounded-md px-2.5 py-1.5 flex items-center justify-between gap-2">
+                    <span class="font-mono text-[11px] font-semibold text-ink truncate">{{ sym.split("/")[0] }}</span>
+                    <span class="chip chip--{{ tone }}" style="font-size: 9px; padding: 1px 5px;">{{ short }}</span>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    {% endcall %}
+    {% endif %}
+
+    {# ---------------- TELEGRAM ---------------- #}
+    {% call card("Telegram alerts", "Optional but expected before going live.") %}
+        <form method="post" action="/settings/telegram/save" class="space-y-3">
+            <div>
+                <label class="form-label">Bot token <span class="form-hint">— @BotFather</span></label>
+                <input type="password" name="token" value="{{ env.tg_token }}" autocomplete="off" class="form-input">
+            </div>
+            <div>
+                <label class="form-label">Chat ID <span class="form-hint">— @userinfobot</span></label>
+                <input type="text" name="chat_id" value="{{ env.tg_chat }}" autocomplete="off" class="form-input">
+            </div>
+            <div class="flex gap-2 pt-1">
+                <button class="btn-primary">Save</button>
+                <button formaction="/settings/telegram/test" class="btn-secondary">Send test</button>
+            </div>
+        </form>
+    {% endcall %}
+
+    {# ---------------- DAILY SUMMARY ---------------- #}
+    {% call card("Daily summary",
+        "Posts a Telegram digest 6× per day — equity, open positions, today's trades. Schedule: 06/09/12/15/18/21 local time.") %}
+        <form method="post" action="/settings/daily-summary/install" class="space-y-3">
+            <div class="flex items-center justify-between gap-3 flex-wrap">
+                <div>
+                    {% if daily_cron.installed %}{{ pill("Scheduled · 06/09/12/15/18/21", "green") }}
+                    {% else %}{{ pill("Not scheduled", "neutral") }}{% endif %}
+                </div>
+                {% if not daily_cron.tg_configured %}
+                {{ pill("Telegram not configured ↑", "amber") }}
+                {% endif %}
+            </div>
+            <div class="flex gap-2 pt-1">
+                <button class="btn-primary" {% if not daily_cron.tg_configured %}disabled title="Configure Telegram first"{% endif %}>
+                    {% if daily_cron.installed %}Reinstall schedule{% else %}Schedule (6× daily){% endif %}
+                </button>
+                <button formaction="/settings/daily-summary/test" class="btn-secondary"
+                        {% if not daily_cron.tg_configured %}disabled title="Configure Telegram first"{% endif %}>
+                    Send test now
+                </button>
+                {% if daily_cron.installed %}
+                <button formaction="/settings/daily-summary/uninstall" class="btn-secondary">Remove</button>
+                {% endif %}
+            </div>
+        </form>
+    {% endcall %}
+
+    {# ---------------- LLM FILTER ---------------- #}
+    {% call card("Claude filter", "Routes BUY signals through Claude. Rejected buys become logged holds.") %}
+        <form method="post" action="/settings/llm/save" class="space-y-3">
+            <div>
+                {% if llm.on and llm.has_key %}{{ pill("Enabled · threshold " + "{:+.2f}".format(llm.threshold), "green") }}
+                {% elif llm.on and not llm.has_key %}{{ pill("Enabled but missing API key", "red") }}
+                {% else %}{{ pill("Disabled", "neutral") }}{% endif %}
+            </div>
+            <div>
+                <label class="form-label">Anthropic API key</label>
+                <input type="password" name="api_key" value="{{ env.anthropic_key }}" autocomplete="off" class="form-input">
+            </div>
+            <div>
+                <label class="form-label flex items-center justify-between">
+                    <span>Approval threshold</span>
+                    <output class="font-mono text-[12px] text-ink tabular-nums">{{ "%.2f"|format(llm.threshold) }}</output>
+                </label>
+                <input type="range" name="threshold" min="-1" max="1" step="0.05" value="{{ llm.threshold }}"
+                       oninput="this.parentElement.querySelector('output').value=Number(this.value).toFixed(2)"
+                       class="w-full">
+                <div class="flex justify-between text-[10px] text-ink3 font-mono mt-1">
+                    <span>−1 reject</span><span>0</span><span>+1 approve</span>
+                </div>
+            </div>
+            <div class="flex gap-2 pt-1">
+                <button class="btn-primary">{% if llm.on %}Save{% else %}Enable{% endif %}</button>
+                {% if llm.on %}
+                <button formaction="/settings/llm/disable" class="btn-secondary">Disable</button>
+                {% endif %}
+            </div>
+        </form>
+    {% endcall %}
+
+    {# ---------------- DANGER ZONE HEADER ---------------- #}
+    <div class="mt-12 mb-4">
+        <h2 class="text-[18px] font-semibold tracking-tight text-red-400">Danger zone</h2>
+        <p class="text-[12.5px] text-ink3 mt-1">Real money or destructive actions.</p>
+    </div>
+
+    {# ---------------- LIVE MODE ---------------- #}
+    {% call card("Live mode", "PAPER → DRY-RUN → REAL. Step through carefully — DRY-RUN connects to real Kraken without placing orders, lets you verify auth + reconcile.", danger=True) %}
+        <div class="space-y-3">
+            <div class="flex items-center gap-3">
+                <span class="text-[10px] font-mono uppercase tracking-wider text-ink3">State:</span>
+                {% if live_mode == "paper" %}
+                {{ pill("PAPER · simulated fills", "neutral") }}
+                {% elif live_mode == "live_dry" %}
+                {{ pill("LIVE · DRY-RUN (Kraken auth, no orders)", "amber") }}
+                {% elif live_mode == "live_real" %}
+                {{ pill("LIVE · REAL ORDERS", "red") }}
+                {% endif %}
+            </div>
+
+            {% if live_mode == "paper" %}
+            <p class="text-[12px] text-ink2">
+                Currently in paper mode. Step 1: connect to Kraken in dry-run to verify auth + reconcile.
+                {% if not has_kraken_keys %}<br><strong class="text-amber-400">Save Kraken keys first ↓</strong>{% endif %}
+            </p>
+            <form method="post" action="/settings/live-mode/enable-dry">
+                <button class="btn-destructive" {% if not has_kraken_keys %}disabled title="Save Kraken keys first"{% endif %}>
+                    Enable LIVE (dry-run first)
+                </button>
+            </form>
+
+            {% elif live_mode == "live_dry" %}
+            <p class="text-[12px] text-ink2">
+                Bot connects to your Kraken account but <strong>does not place orders</strong>. Verify the next bar's
+                reconcile passes and you see "would place order" in the log. Then step up to REAL.
+            </p>
+            <div class="flex gap-2 flex-wrap">
+                <form method="post" action="/settings/live-mode/go-real"
+                      onsubmit="return confirm('Switch to REAL Kraken orders?\n\nThis WILL place actual orders with your funded account on the next signal. First {{ 30 }} fills are tagged as live_calibration.\n\nMake sure dry-run reconcile passed.');">
+                    <input type="hidden" name="confirm" value="yes">
+                    <button class="btn-destructive-solid">Go REAL (place actual orders)</button>
+                </form>
+                <form method="post" action="/settings/live-mode/disable">
+                    <button class="btn-secondary">Back to PAPER</button>
+                </form>
+            </div>
+
+            {% elif live_mode == "live_real" %}
+            <p class="text-[12px] text-red-300 font-medium">
+                ⚠ Real orders are being placed. First 30 fills are calibration (S-55).
+                Live session must also be active for orders to flow:
+                {% if live_session.is_active %}<span class="text-green-400">SESSION ACTIVE</span>
+                {% else %}<span class="text-red-400">SESSION INACTIVE — activate below ↓</span>{% endif %}
+            </p>
+            <div class="flex gap-2 flex-wrap">
+                <form method="post" action="/settings/live-mode/back-to-dry"
+                      onsubmit="return confirm('Drop back to DRY-RUN? No new orders will be placed; existing positions stay.');">
+                    <button class="btn-secondary">Back to DRY-RUN</button>
+                </form>
+                <form method="post" action="/settings/live-mode/disable"
+                      onsubmit="return confirm('Disable LIVE mode entirely? Goes back to PAPER (simulated fills).');">
+                    <button class="btn-secondary">Back to PAPER</button>
+                </form>
+            </div>
+            {% endif %}
+
+            <p class="text-[10.5px] text-ink3 mt-3 pt-3 border-t border-line">
+                Sets <code class="text-ink font-mono">LIVE_TRADING</code> and
+                <code class="text-ink font-mono">KRAKEN_DRY_RUN</code> in <code class="font-mono">.env</code>.
+                Loop restart applies the change.
+            </p>
+        </div>
+    {% endcall %}
+
+    {# ---------------- KILL SWITCH ---------------- #}
+    {% call card("Kill switch", "Pauses the bot. Orders refused until disabled.", danger=True) %}
+        <div class="flex items-center justify-between gap-4">
+            <div>
+                {% if kill_on %}{{ pill("Active — bot paused", "red") }}
+                {% else %}{{ pill("Off — bot may trade", "neutral") }}{% endif %}
+            </div>
+            {% if kill_on %}
+            <form method="post" action="/settings/kill-switch/disable"
+                  onsubmit="return confirm('Disable the kill switch? The bot will resume trading on the next bar close.');">
+                <button class="btn-primary">Disable kill switch</button>
+            </form>
+            {% else %}
+            <form method="post" action="/settings/kill-switch/enable">
+                <button class="btn-destructive">Enable kill switch</button>
+            </form>
+            {% endif %}
+        </div>
+    {% endcall %}
+
+    {# ---------------- LIVE SESSION ---------------- #}
+    {% call card("Live session", "24h gate on top of LIVE_TRADING env. Re-confirm daily.", danger=True) %}
+        {% if live_session.is_active %}
+        <div class="flex items-center justify-between gap-4">
+            <div>{{ pill("Active · " + live_session.remaining_h|string + "h " + "{:02d}".format(live_session.remaining_m) + "m left", "green") }}</div>
+            <form method="post" action="/settings/live-session/deactivate">
+                <button class="btn-secondary">Deactivate</button>
+            </form>
+        </div>
+        {% else %}
+        <div class="space-y-3">
+            <div>{{ pill("Inactive", "neutral") }}</div>
+            <form method="post" action="/settings/live-session/activate" class="space-y-3">
+                <div>
+                    <label class="form-label">Type <code class="text-ink font-mono">LIVE</code> to confirm</label>
+                    <input type="text" name="phrase" autocomplete="off" placeholder="LIVE"
+                           class="form-input font-mono uppercase tracking-[0.2em]">
+                </div>
+                <button class="btn-destructive-solid">Activate live session</button>
+            </form>
+        </div>
+        {% endif %}
+    {% endcall %}
+
+    {# ---------------- KRAKEN KEYS ---------------- #}
+    {% call card("Kraken keys", "Required for live trading. Never grant Withdraw Funds.", danger=True) %}
+        <form method="post" action="/settings/kraken/save" class="space-y-3">
+            <div>
+                {% if env.kraken_key and env.kraken_secret %}{{ pill("Configured", "green") }}
+                {% else %}{{ pill("Not configured", "neutral") }}{% endif %}
+            </div>
+            <div>
+                <label class="form-label">API key</label>
+                <input type="password" name="key" value="{{ env.kraken_key }}" autocomplete="off" class="form-input">
+            </div>
+            <div>
+                <label class="form-label">API secret</label>
+                <input type="password" name="secret" value="{{ env.kraken_secret }}" autocomplete="off" class="form-input">
+            </div>
+            <button class="btn-destructive-solid">Save Kraken keys</button>
+        </form>
+    {% endcall %}
+
+    {# ---------------- RESET LOG ---------------- #}
+    {% call card("Reset log", "Wipes the decision log. Backup kept in data/decision_log/backups/.", danger=True) %}
+        <form method="post" action="/settings/log/reset"
+              onsubmit="return confirm('Wipe the ENTIRE decision log?\n\nThe loop will be stopped, the current log moved to data/decision_log/backups/, and the dashboard will start fresh. Backups are kept — but this cannot be undone in place.');">
+            <input type="hidden" name="confirm" value="yes">
+            <button class="btn-destructive">Reset decision log</button>
+        </form>
+    {% endcall %}
+
+    <footer class="pt-6 mt-2 text-[10.5px] font-mono text-ink3 flex justify-between flex-wrap gap-2">
+        <span>Build {{ build }}</span>
+        <span>{{ project_name }} · {{ log_path }}</span>
+    </footer>
+</div>
+{% endblock %}

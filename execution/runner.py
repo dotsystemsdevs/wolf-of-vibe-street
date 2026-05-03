@@ -40,7 +40,7 @@ def _utc_iso_week(ts_ms: int) -> tuple[int, int]:
 
 
 class Executor:
-    """Single-symbol, single-position, long-only paper-mode runner."""
+    """Multi-symbol-aware, one-position-per-symbol, long-only paper-mode runner."""
 
     def __init__(
         self,
@@ -52,6 +52,7 @@ class Executor:
         caps: RiskCaps | None = None,
         risk_pct: float = 0.005,
         trade_mode: str = "paper",
+        on_fill=None,  # optional callback(side, symbol, price, pnl_pct=None)
     ):
         self.broker = broker
         self.log = log
@@ -59,17 +60,21 @@ class Executor:
         self.cash = initial_cash
         self.risk_pct = risk_pct
         self.caps = caps
-        # Tagged into every fill's metadata_json so the dashboard + analysis can
-        # filter "real money" vs "paper" rows without ambiguity. See risk.live_gate
-        # for the legal values; defaults to "paper" so existing call sites are safe.
         self.trade_mode = trade_mode
+        # Optional fill notification — called after every successful entry/exit.
+        # Used by live_loop to push real-time Telegram alerts ("Buy SOL" /
+        # "SOLD SOL +2.1%"). Decoupled from the broker so tests don't pull in
+        # a notifier.
+        self._on_fill = on_fill
         self.daily_high_water = initial_cash
         self.weekly_high_water = initial_cash
         self._current_day: int | None = None
         self._current_week: tuple[int, int] | None = None
-        self._open_stop: float | None = None
-        self._open_target: float | None = None
-        self._open_signal_id: str | None = None
+        self._open_stops: dict[str, float] = {}
+        self._open_targets: dict[str, float] = {}
+        self._open_signal_ids: dict[str, str] = {}
+        # Track entry prices for accurate realized-% on exit.
+        self._open_entry_prices: dict[str, float] = {}
 
     def equity(self, mark_price_by_symbol: dict[str, float]) -> float:
         eq = self.cash
@@ -98,13 +103,26 @@ class Executor:
         positions = self.broker.positions()
         open_pos = next((p for p in positions if p.symbol == signal.symbol), None)
 
-        if open_pos is not None and self._open_stop is not None and self._open_target is not None:
+        sym = signal.symbol
+        sym_stop = self._open_stops.get(sym)
+        sym_target = self._open_targets.get(sym)
+        # Intra-bar stop/target check. Direction-aware: for longs the stop is
+        # BELOW entry (bar.low triggers it) and target ABOVE (bar.high triggers).
+        # For shorts the directions invert: stop ABOVE entry, target BELOW.
+        if open_pos is not None and sym_stop is not None and sym_target is not None:
             exit_reason: str | None = None
             exit_price: float | None = None
-            if bar.low <= self._open_stop:
-                exit_reason, exit_price = "stop_hit", self._open_stop
-            elif bar.high >= self._open_target:
-                exit_reason, exit_price = "target_hit", self._open_target
+            is_short = open_pos.quantity < 0
+            if is_short:
+                if bar.high >= sym_stop:
+                    exit_reason, exit_price = "stop_hit", sym_stop
+                elif bar.low <= sym_target:
+                    exit_reason, exit_price = "target_hit", sym_target
+            else:
+                if bar.low <= sym_stop:
+                    exit_reason, exit_price = "stop_hit", sym_stop
+                elif bar.high >= sym_target:
+                    exit_reason, exit_price = "target_hit", sym_target
             if exit_reason is not None and exit_price is not None:
                 self._exit(open_pos.symbol, open_pos.quantity, exit_price, exit_reason, bar)
                 open_pos = None
@@ -123,17 +141,28 @@ class Executor:
         )
 
         if signal.side == "buy" and open_pos is None and signal.stop is not None:
-            self._try_enter(signal, bar)
-        elif signal.side == "sell" and open_pos is not None:
+            self._try_enter(signal, bar, direction="long")
+        elif signal.side == "short" and open_pos is None and signal.stop is not None:
+            self._try_enter(signal, bar, direction="short")
+        elif signal.side == "sell" and open_pos is not None and open_pos.quantity > 0:
+            self._exit(open_pos.symbol, open_pos.quantity, bar.close, "signal_exit", bar)
+        elif signal.side == "cover" and open_pos is not None and open_pos.quantity < 0:
             self._exit(open_pos.symbol, open_pos.quantity, bar.close, "signal_exit", bar)
 
-    def _try_enter(self, signal: Signal, bar: Bar) -> None:
+    def _try_enter(self, signal: Signal, bar: Bar, *, direction: str = "long") -> None:
+        """Open a long (direction='long') or short (direction='short') position.
+
+        Long: broker side='buy', position qty positive, cash decreases by notional+fee.
+        Short: broker side='sell' (sell-to-open), position qty negative, cash
+               increases by proceeds-fee (we receive the borrowed-coin sale).
+        """
         assert signal.stop is not None
         eq = self.equity({signal.symbol: bar.close})
         qty = position_size(eq, bar.close, signal.stop, risk_pct=self.risk_pct)
         if qty <= 0:
             return
         notional = qty * bar.close
+        broker_side = "buy" if direction == "long" else "sell"
 
         if self.caps is not None:
             state = RiskState(
@@ -141,7 +170,7 @@ class Executor:
                 daily_high_water=self.daily_high_water,
                 weekly_high_water=self.weekly_high_water,
                 open_positions_count=len(self.broker.positions()),
-                open_total_notional_usd=sum(p.notional for p in self.broker.positions()),
+                open_total_notional_usd=sum(abs(p.notional) for p in self.broker.positions()),
             )
             decision = check_entry(state, notional, self.caps)
             if not decision.allow:
@@ -159,11 +188,11 @@ class Executor:
                 )
                 return
 
-        coid = make_client_order_id(self.strategy_id, str(signal.timestamp_ms))
+        coid = make_client_order_id(self.strategy_id, signal.symbol, str(signal.timestamp_ms))
         order = Order(
             client_order_id=coid,
             symbol=signal.symbol,
-            side="buy",
+            side=broker_side,
             quantity=qty,
             order_type="market",
         )
@@ -172,13 +201,14 @@ class Executor:
                 timestamp_ms=signal.timestamp_ms,
                 event_type="order_placed",
                 symbol=signal.symbol,
-                side="buy",
+                side=signal.side,  # "buy" or "short" — preserves intent in log
                 strategy_id=self.strategy_id,
                 signal_id=str(signal.timestamp_ms),
                 client_order_id=coid,
                 quantity=qty,
                 price=bar.close,
                 notional=notional,
+                metadata={"stop": signal.stop, "target": signal.target, "direction": direction},
             )
         )
         fill = self.broker.place(order, mark_price=bar.close, timestamp_ms=bar.timestamp_ms)
@@ -188,7 +218,7 @@ class Executor:
                     timestamp_ms=signal.timestamp_ms,
                     event_type="order_rejected",
                     symbol=signal.symbol,
-                    side="buy",
+                    side=signal.side,
                     strategy_id=self.strategy_id,
                     signal_id=str(signal.timestamp_ms),
                     client_order_id=coid,
@@ -196,52 +226,73 @@ class Executor:
                 )
             )
             return
-        cost = fill.price * fill.quantity + fill.fee
-        self.cash -= cost
-        self._open_stop = signal.stop
-        self._open_target = signal.target
-        self._open_signal_id = str(signal.timestamp_ms)
+        # Cash flow flips by direction: long pays out for the buy, short receives
+        # proceeds (mark-to-market via short-sale of borrowed coin in real perp market).
+        if direction == "long":
+            self.cash -= fill.price * fill.quantity + fill.fee
+        else:
+            self.cash += fill.price * fill.quantity - fill.fee
+        self._open_stops[signal.symbol] = signal.stop
+        self._open_targets[signal.symbol] = signal.target
+        self._open_signal_ids[signal.symbol] = str(signal.timestamp_ms)
+        self._open_entry_prices[signal.symbol] = float(fill.price)
+        # Real-time entry alert (Telegram in live).
+        if self._on_fill is not None:
+            try:
+                self._on_fill(direction, signal.symbol, float(fill.price), None)
+            except Exception:  # noqa: BLE001
+                pass
         self.log.append(
             DecisionEvent(
                 timestamp_ms=fill.timestamp_ms,
                 event_type="order_filled",
                 symbol=fill.symbol,
-                side="buy",
+                side=signal.side,  # "buy" for long entry, "short" for short entry
                 strategy_id=self.strategy_id,
-                signal_id=self._open_signal_id,
+                signal_id=self._open_signal_ids.get(signal.symbol),
                 client_order_id=coid,
                 quantity=fill.quantity,
                 price=fill.price,
                 notional=fill.notional,
                 slippage_bps=(fill.price / bar.close - 1.0) * 10_000.0,
-                metadata={"fee": fill.fee, "mode": self.trade_mode},
+                metadata={"fee": fill.fee, "mode": self.trade_mode, "direction": direction},
             )
         )
 
     def _exit(self, symbol: str, qty: float, price: float, reason: str, bar: Bar) -> None:
-        if qty <= 0:
+        """Close a position. `qty` is signed: positive = long position to sell,
+        negative = short position to cover. Cash flow flips accordingly."""
+        if qty == 0:
             return
-        coid = make_client_order_id(self.strategy_id, f"{self._open_signal_id or 'unknown'}:exit")
+        is_short = qty < 0
+        abs_qty = abs(qty)
+        signal_id = self._open_signal_ids.get(symbol) or "unknown"
+        coid = make_client_order_id(self.strategy_id, symbol, f"{signal_id}:exit")
+        # Closing a short = buy-to-cover; closing a long = sell-to-close.
+        broker_side = "buy" if is_short else "sell"
         order = Order(
             client_order_id=coid,
             symbol=symbol,
-            side="sell",
-            quantity=qty,
+            side=broker_side,
+            quantity=abs_qty,
             order_type="market",
         )
         fill = self.broker.place(order, mark_price=price, timestamp_ms=bar.timestamp_ms)
         if fill is None:
             return
-        proceeds = fill.price * fill.quantity - fill.fee
-        self.cash += proceeds
+        # Long close → cash += sale proceeds. Short cover → cash -= buyback cost.
+        if is_short:
+            self.cash -= fill.price * fill.quantity + fill.fee
+        else:
+            self.cash += fill.price * fill.quantity - fill.fee
         self.log.append(
             DecisionEvent(
                 timestamp_ms=fill.timestamp_ms,
                 event_type="order_filled",
                 symbol=fill.symbol,
-                side="sell",
+                side="cover" if is_short else "sell",
                 strategy_id=self.strategy_id,
-                signal_id=self._open_signal_id,
+                signal_id=signal_id,
                 client_order_id=coid,
                 quantity=fill.quantity,
                 price=fill.price,
@@ -251,6 +302,23 @@ class Executor:
                 metadata={"fee": fill.fee, "mode": self.trade_mode},
             )
         )
-        self._open_stop = None
-        self._open_target = None
-        self._open_signal_id = None
+        # Compute realized % return for the fill alert (long: exit/entry-1; short
+        # inverts because price-down is profit). Falls back to 0% if entry price
+        # was never recorded (legacy log rows pre-2026-05-03).
+        entry_px = self._open_entry_prices.pop(symbol, 0.0)
+        pnl_pct: float | None = None
+        if entry_px > 0:
+            if is_short:
+                pnl_pct = (entry_px / float(fill.price) - 1.0) * 100.0
+            else:
+                pnl_pct = (float(fill.price) / entry_px - 1.0) * 100.0
+        self._open_stops.pop(symbol, None)
+        self._open_targets.pop(symbol, None)
+        self._open_signal_ids.pop(symbol, None)
+        # Real-time exit alert (Telegram in live).
+        if self._on_fill is not None:
+            try:
+                exit_side = "cover" if is_short else "sell"
+                self._on_fill(exit_side, symbol, float(fill.price), pnl_pct)
+            except Exception:  # noqa: BLE001
+                pass

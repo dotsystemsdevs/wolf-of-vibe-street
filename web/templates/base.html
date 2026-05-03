@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>traderbot · {{ active_view|upper }}</title>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="preconnect" href="https://unpkg.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/app.css">
+    {% block head_extra %}{% endblock %}
+
+    <script>
+      // Apply saved theme BEFORE paint to avoid a flash of wrong-theme content.
+      try {
+        const t = localStorage.getItem('traderbot-theme');
+        if (t === 'light') document.documentElement.classList.add('light');
+      } catch (e) {}
+
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+              mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
+            },
+            // All colors map to CSS variables — switching `.light` on <html>
+            // re-paints every Tailwind utility automatically.
+            colors: {
+              bg:    'var(--c-bg)',
+              card:  'var(--c-card)',
+              card2: 'var(--c-card2)',
+              line:  'var(--c-line)',
+              line2: 'var(--c-line2)',
+              ink:   'var(--c-ink)',
+              ink2:  'var(--c-ink2)',
+              ink3:  'var(--c-ink3)',
+              ink4:  'var(--c-ink4)',
+            },
+          },
+        },
+      };
+    </script>
+</head>
+<body class="bg-bg text-ink font-sans antialiased min-h-screen">
+    {% include "_topbar.html" %}
+    <div class="flex">
+        {% include "_sidebar.html" %}
+        <main id="main-content" class="flex-1 px-6 py-6 max-w-full overflow-x-auto">
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+    {# Subtle progress bar at the very top while HTMX swaps content #}
+    <style>
+      .htmx-indicator { position: fixed; top: 0; left: 0; right: 0; height: 2px; background: linear-gradient(90deg, transparent, #22c55e, transparent); opacity: 0; transition: opacity 0.15s; z-index: 200; }
+      .htmx-request .htmx-indicator { opacity: 1; animation: hmove 0.9s linear infinite; }
+      @keyframes hmove { 0% { background-position: -200px 0; } 100% { background-position: 200px 0; } }
+    </style>
+    <div class="htmx-indicator"></div>
+
+    <script>
+      // Theme toggle — persists in localStorage, applied pre-paint by the script in <head>.
+      window.toggleTheme = function() {
+        const root = document.documentElement;
+        const isLight = root.classList.toggle('light');
+        try { localStorage.setItem('traderbot-theme', isLight ? 'light' : 'dark'); } catch (e) {}
+        // Notify charts (and any other JS components) that they need to repaint.
+        document.dispatchEvent(new CustomEvent('themechange', { detail: { isLight } }));
+      };
+
+      // Single source of truth for chart colors — reads the .light flag and
+      // returns a palette that matches the page CSS vars exactly. Slightly
+      // stronger grid/border in light mode so chart frames don't disappear
+      // against white card backgrounds.
+      window.getChartTheme = function() {
+        const isLight = document.documentElement.classList.contains('light');
+        return isLight ? {
+          bg: '#ffffff', text: '#3f3f46', grid: '#e4e4e7', border: '#d4d4d8',
+          up: '#15803d', down: '#b91c1c', line: '#15803d',
+          areaTop: 'rgba(21,128,61,0.18)', areaBottom: 'rgba(21,128,61,0.0)',
+        } : {
+          bg: '#121212', text: '#a3a3a3', grid: '#1a1a1a', border: '#2a2a2a',
+          up: '#22c55e', down: '#ef4444', line: '#22c55e',
+          areaTop: 'rgba(34,197,94,0.18)', areaBottom: 'rgba(34,197,94,0.0)',
+        };
+      };
+
+      // Linear-style keyboard shortcuts: hold "g" then a letter to navigate.
+      (function() {
+        const map = { d: '/', c: '/compare', t: '/tape', s: '/settings' };
+        let armed = false;
+        let timer = null;
+        document.addEventListener('keydown', (e) => {
+          if (e.target.matches('input, textarea, select, [contenteditable=true]')) return;
+          if (e.metaKey || e.ctrlKey || e.altKey) return;
+          if (!armed && e.key.toLowerCase() === 'g') {
+            armed = true;
+            clearTimeout(timer);
+            timer = setTimeout(() => { armed = false; }, 1500);
+            return;
+          }
+          if (armed) {
+            armed = false;
+            clearTimeout(timer);
+            const dest = map[e.key.toLowerCase()];
+            if (dest) { window.location.href = dest; e.preventDefault(); }
+          }
+        });
+      })();
+    </script>
+</body>
+</html>

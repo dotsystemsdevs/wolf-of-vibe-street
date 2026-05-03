@@ -1,14 +1,17 @@
-"""Tests for pure helpers in ui.dashboard.
+"""Tests for pure helpers in web.readiness.
 
-Streamlit-rendering code is excluded — only the data-shape helpers that we
-import + call directly. Today: _live_calibration_fill_count, _go_live_readiness.
+Pure data-shape functions used by the GO LIVE view: calibration_fill_count,
+go_live_readiness. No FastAPI/Jinja imports — these are testable in isolation.
 """
 
 from __future__ import annotations
 
 import json
 
-from ui.dashboard import _go_live_readiness, _live_calibration_fill_count
+from web.readiness import (
+    calibration_fill_count as _live_calibration_fill_count,
+    go_live_readiness as _go_live_readiness,
+)
 
 
 def _fill_row(mode: str | None, ts: int = 0) -> dict:

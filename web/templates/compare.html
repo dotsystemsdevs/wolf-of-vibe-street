@@ -1,0 +1,299 @@
+{% extends "base.html" %}
+{% from "_macros.html" import divider %}
+
+{# Two-column row: title + description on the left, controls on the right.
+   Heading sized to match `section_head` in _macros.html for consistency. #}
+{% macro row(title, desc) %}
+<div class="grid grid-cols-1 md:grid-cols-3 gap-x-10 gap-y-4 py-8">
+    <div>
+        <h2 class="text-[18px] font-semibold tracking-tight text-ink">{{ title }}</h2>
+        <p class="text-[12.5px] text-ink2 mt-1.5 leading-relaxed">{{ desc }}</p>
+    </div>
+    <div class="md:col-span-2">
+        {{ caller() }}
+    </div>
+</div>
+{% endmacro %}
+
+{% block content %}
+<div class="page">
+
+    <header class="pb-8">
+        <h1 class="text-[30px] font-semibold tracking-tight">Compare</h1>
+    </header>
+
+    {% if error %}
+    <div class="mb-6 rounded-md border border-red-500/30 bg-red-500/[0.04] px-3.5 py-2.5 text-[12px] text-red-300 flex items-start gap-2">
+        <span class="size-1.5 rounded-full bg-red-500 mt-1.5 shrink-0"></span>{{ error }}
+    </div>
+    {% endif %}
+
+    {{ divider() }}
+
+    {% call row("Parameters", "Multi-symbol backtest. Uses local Parquet cache when present — first run on a symbol pulls bars from Binance.") %}
+        <form method="post" action="/compare" class="space-y-3"
+              onsubmit="this.querySelector('button[type=submit]').dataset.busy='1'; this.querySelector('button[type=submit]').textContent='Running…'">
+            <div>
+                <label class="form-label">Symbols <span class="form-hint">— comma-separated</span></label>
+                <input type="text" name="symbols" value="{{ params.symbols if params else symbols_default }}"
+                       class="form-input">
+            </div>
+
+            <div class="grid grid-cols-3 gap-3">
+                <div>
+                    <label class="form-label">Days</label>
+                    <input type="number" name="days" min="7" max="180" value="{{ params.days if params else 30 }}"
+                           class="form-input">
+                </div>
+                <div>
+                    <label class="form-label">Timeframe</label>
+                    <select name="timeframe" class="form-select">
+                        {% for tf in ["1h", "4h", "1d"] %}
+                        <option value="{{ tf }}" {% if params and params.timeframe == tf %}selected{% endif %}>{{ tf }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label class="form-label">Strategy</label>
+                    <select name="strategy" class="form-select">
+                        {% for label in strategy_labels %}
+                        <option value="{{ label }}" {% if params and params.strategy == label %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+
+            <div class="pt-1">
+                <button type="submit" class="btn-primary data-[busy=1]:opacity-50 data-[busy=1]:cursor-wait">Run backtest</button>
+            </div>
+        </form>
+    {% endcall %}
+
+    {{ divider() }}
+
+    {% if equity_series %}
+    {% call row("Equity overlay", "Each symbol's strategy equity curve, normalized to 100. Tracks how each backtested coin performed relative to the same starting capital.") %}
+        <div id="equity-overlay" class="bg-card border border-line rounded-lg h-[320px] overflow-hidden"></div>
+        <div class="flex flex-wrap gap-3 mt-3 text-[11px] font-mono" id="equity-legend"></div>
+    {% endcall %}
+    {% endif %}
+
+    {{ divider() }}
+
+    {% call row("Results", rows|length|string + " symbols ranked by expectancy. Bold strategy column = total return; Diff is strategy minus buy-and-hold." if rows else "Output appears here after a run. Backfill + backtest typically takes 5–30 seconds depending on symbol count.") %}
+        {% if rows %}
+        <div class="sheet-wrap">
+            <table class="sheet">
+                <thead>
+                    <tr class="heads">
+                        <th data-sortable data-type="text">Symbol</th>
+                        <th data-sortable data-type="num">Bars</th>
+                        <th data-sortable data-type="num">Trades</th>
+                        <th data-sortable data-type="num">WR</th>
+                        <th data-sortable data-type="num">Exp/trade</th>
+                        <th data-sortable data-type="num">PF</th>
+                        <th data-sortable data-type="num">Strategy</th>
+                        <th data-sortable data-type="num">B&amp;H</th>
+                        <th data-sortable data-type="num">Diff</th>
+                        <th data-sortable data-type="num">Sharpe</th>
+                        <th data-sortable data-type="num">MaxDD</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for r in rows %}
+                    {% set strat_sign = 'pos' if r.strategy_pct > 0 else ('neg' if r.strategy_pct < 0 else 'muted') %}
+                    {% set diff_sign = 'pos' if r.diff > 0 else ('neg' if r.diff < 0 else 'muted') %}
+                    {% set exp_sign = 'pos' if r.expectancy > 0 else ('neg' if r.expectancy < 0 else 'muted') %}
+                    {% set pf_sign = 'pos' if r.pf_val > 1.5 else ('neg' if r.pf_val < 1.0 else 'muted') %}
+                    <tr>
+                        <td>{{ r.symbol }}</td>
+                        <td class="num muted">{{ r.bars }}</td>
+                        <td class="num">{{ r.trades }}</td>
+                        <td class="num muted">{{ "{:.1f}".format(r.win_rate) }}%</td>
+                        <td class="num {{ exp_sign }}">${{ "{:+.2f}".format(r.expectancy) }}</td>
+                        <td class="num {{ pf_sign }}">{{ r.pf }}</td>
+                        <td class="num {{ strat_sign }}" style="font-weight:700;">{{ "{:+.2f}".format(r.strategy_pct) }}%</td>
+                        <td class="num muted">{{ "{:+.2f}".format(r.buy_hold_pct) }}%</td>
+                        <td class="num {{ diff_sign }}">{{ "{:+.2f}".format(r.diff) }}pp</td>
+                        <td class="num muted">{{ "{:+.2f}".format(r.sharpe) }}</td>
+                        <td class="num muted">{{ "{:.2f}".format(r.max_dd) }}%</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="rounded-lg border border-line border-dashed bg-card px-6 py-10 text-center">
+            <div class="text-[12px] text-ink2">Run a backtest to see results.</div>
+            <div class="text-[11px] text-ink3 mt-1">Symbols and a strategy already chosen — just click <strong>Run backtest</strong>.</div>
+        </div>
+        {% endif %}
+    {% endcall %}
+
+    {% if rows %}
+    {{ divider() }}
+
+    {% call row("Walk-forward validation", "Splits the same window into 6 folds and runs the strategy on each independently. Tells you if the aggregate result is real edge or one lucky regime. Verdict: PASS, WEAK, or FAIL.") %}
+        {% if not wf_reports %}
+        <form method="post" action="/compare/validate"
+              onsubmit="this.querySelector('button').dataset.busy='1'; this.querySelector('button').textContent='Validating across 6 folds…'">
+            <button class="btn-primary data-[busy=1]:opacity-50 data-[busy=1]:cursor-wait">
+                Validate (walk-forward)
+            </button>
+            <p class="text-[11px] text-ink3 mt-2">
+                Re-runs the same strategy/symbols/days, but split into 6 consecutive windows.
+                Robust strategies pass ≥4/6 folds.
+            </p>
+        </form>
+        {% else %}
+        <div class="space-y-4">
+            {% for r in wf_reports %}
+            <div class="rounded-lg border bg-card p-4
+                {% if r.verdict == 'PASS' %}border-green-500/40
+                {% elif r.verdict == 'WEAK' %}border-amber-500/40
+                {% else %}border-red-500/40{% endif %}">
+                <div class="flex items-baseline justify-between flex-wrap gap-3 mb-3">
+                    <div class="flex items-baseline gap-3">
+                        <h3 class="text-[14px] font-semibold text-ink">{{ r.symbol }}</h3>
+                        <span class="text-[11px] text-ink3 font-mono">{{ r.n_folds }} folds · {{ r.timeframe }}</span>
+                    </div>
+                    <span class="chip chip--{% if r.verdict == 'PASS' %}green{% elif r.verdict == 'WEAK' %}amber{% else %}red{% endif %}">
+                        {{ r.verdict }}
+                    </span>
+                </div>
+
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-[11px] mb-3">
+                    <div>
+                        <div class="text-ink3 uppercase tracking-wider text-[9.5px] mb-0.5">Folds PF&gt;1</div>
+                        <div class="font-mono text-ink font-semibold">{{ r.folds_pf_above_1 }}/{{ r.n_folds }}</div>
+                    </div>
+                    <div>
+                        <div class="text-ink3 uppercase tracking-wider text-[9.5px] mb-0.5">Median PF</div>
+                        <div class="font-mono font-semibold {% if r.median_pf > 1.0 %}text-green-500{% elif r.median_pf > 0.7 %}text-amber-500{% else %}text-red-500{% endif %}">
+                            {{ "{:.2f}".format(r.median_pf) }}
+                        </div>
+                    </div>
+                    <div>
+                        <div class="text-ink3 uppercase tracking-wider text-[9.5px] mb-0.5">Median Sharpe</div>
+                        <div class="font-mono text-ink font-semibold">{{ "{:+.2f}".format(r.median_sharpe) }}</div>
+                    </div>
+                    <div>
+                        <div class="text-ink3 uppercase tracking-wider text-[9.5px] mb-0.5">Compounded</div>
+                        <div class="font-mono font-semibold {% if r.aggregate_return_pct > 0 %}text-green-500{% else %}text-red-500{% endif %}">
+                            {{ "{:+.2f}".format(r.aggregate_return_pct) }}%
+                        </div>
+                    </div>
+                </div>
+
+                <div class="sheet-wrap" style="max-height: none;">
+                    <table class="sheet">
+                        <thead>
+                            <tr class="heads">
+                                <th>Fold</th>
+                                <th>Trades</th>
+                                <th>WR</th>
+                                <th>Expectancy</th>
+                                <th>PF</th>
+                                <th>Sharpe</th>
+                                <th>MaxDD</th>
+                                <th>Return</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for f in r.folds %}
+                            {% set pf_cls = 'pos' if f.pf > 1.0 else ('neg' if f.pf < 0.7 else 'muted') %}
+                            {% set ret_cls = 'pos' if f.return_pct > 0 else 'neg' %}
+                            <tr>
+                                <td>{{ f.i }}/{{ r.n_folds }}</td>
+                                <td class="num">{{ f.trades }}</td>
+                                <td class="num muted">{{ "{:.0f}".format(f.win_rate) }}%</td>
+                                <td class="num {{ pf_cls }}">${{ "{:+.2f}".format(f.expectancy) }}</td>
+                                <td class="num {{ pf_cls }}">{% if f.pf > 1e6 %}∞{% else %}{{ "{:.2f}".format(f.pf) }}{% endif %}</td>
+                                <td class="num muted">{{ "{:+.2f}".format(f.sharpe) }}</td>
+                                <td class="num muted">{{ "{:.1f}".format(f.max_dd) }}%</td>
+                                <td class="num {{ ret_cls }}">{{ "{:+.2f}".format(f.return_pct) }}%</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            {% endfor %}
+            <form method="post" action="/compare/validate"
+                  onsubmit="this.querySelector('button').dataset.busy='1'; this.querySelector('button').textContent='Re-validating…'">
+                <button class="btn-secondary data-[busy=1]:opacity-50">Re-run validation</button>
+            </form>
+        </div>
+        {% endif %}
+    {% endcall %}
+    {% endif %}
+
+    {{ divider() }}
+
+    <footer class="pt-6 mt-2 text-[10.5px] font-mono text-ink3 flex justify-between flex-wrap gap-2">
+        <span>Build {{ build }}</span>
+        <span>{{ project_name }} · {{ rows|length if rows else 0 }} symbols backtested</span>
+    </footer>
+</div>
+
+{% if equity_series %}
+<script>
+(function() {
+  if (!window.LightweightCharts) return;
+  const data = {{ equity_series | tojson }};
+  const el = document.getElementById('equity-overlay');
+  const legendEl = document.getElementById('equity-legend');
+  if (!el || !data.length) return;
+
+  // Distinct line colors per symbol — picked to read on both dark and light bg.
+  const palette = ['#22c55e', '#3b82f6', '#f59e0b', '#a78bfa', '#ec4899', '#06b6d4', '#84cc16', '#f97316'];
+
+  function makeChart() {
+    const t = window.getChartTheme();
+    const chart = LightweightCharts.createChart(el, {
+      layout: { background: { type: 'solid', color: t.bg }, textColor: t.text, fontFamily: '"JetBrains Mono", ui-monospace, monospace', fontSize: 11 },
+      grid: { vertLines: { color: t.grid }, horzLines: { color: t.grid } },
+      rightPriceScale: { borderColor: t.border },
+      timeScale: { borderColor: t.border, timeVisible: true, secondsVisible: false },
+      crosshair: { mode: 0 },
+      handleScroll: false, handleScale: false,
+    });
+    const seriesList = data.map((s, i) => {
+      const color = palette[i % palette.length];
+      const series = chart.addLineSeries({
+        color: color, lineWidth: 2,
+        priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
+        lastValueVisible: true,
+        title: s.symbol,
+      });
+      series.setData(s.data);
+      return { series, color, symbol: s.symbol };
+    });
+    chart.timeScale().fitContent();
+    const resize = () => chart.applyOptions({ width: el.clientWidth, height: el.clientHeight });
+    resize();
+    window.addEventListener('resize', resize);
+
+    // Legend
+    legendEl.innerHTML = seriesList.map(s =>
+      `<span class="inline-flex items-center gap-1.5"><span class="size-2.5 rounded-full" style="background:${s.color}"></span><span class="text-ink">${s.symbol}</span></span>`
+    ).join('');
+
+    return { chart, seriesList };
+  }
+
+  const built = makeChart();
+  // Repaint on theme switch
+  document.addEventListener('themechange', () => {
+    const t = window.getChartTheme();
+    built.chart.applyOptions({
+      layout: { background: { type: 'solid', color: t.bg }, textColor: t.text },
+      grid: { vertLines: { color: t.grid }, horzLines: { color: t.grid } },
+      rightPriceScale: { borderColor: t.border },
+      timeScale: { borderColor: t.border },
+    });
+  });
+})();
+</script>
+{% endif %}
+{% endblock %}

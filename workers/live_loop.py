@@ -36,7 +36,7 @@ from tools.notifier import NoOpNotifier, Notifier, TelegramNotifier
 class LiveLoop:
     def __init__(
         self,
-        symbol: str,
+        symbol: str | list[str],
         timeframe: str,
         executor: Executor,
         marks: dict[str, float],
@@ -46,6 +46,7 @@ class LiveLoop:
         clock_ms: Callable[[], int] | None = None,
         poll_interval_s: float = 30.0,
         strategy_fn: Callable[..., list[Signal]] | None = None,
+        strategy_fn_by_symbol: dict[str, Callable[..., list[Signal]]] | None = None,
         kill_switch_path: Path = DEFAULT_KILL_SWITCH_PATH,
         notifier: Notifier | None = None,
         heartbeat_interval_s: float = 3600.0,
@@ -53,7 +54,16 @@ class LiveLoop:
     ):
         if timeframe not in TIMEFRAME_MS:
             raise ValueError(f"Unsupported timeframe: {timeframe!r}")
-        self.symbol = symbol
+        # Accept either a single symbol (back-compat) or a list. Internally always
+        # a list — single-symbol callers see no semantic difference.
+        if isinstance(symbol, str):
+            self.symbols: list[str] = [symbol]
+        else:
+            self.symbols = list(symbol)
+        if not self.symbols:
+            raise ValueError("Need at least one symbol")
+        # `self.symbol` kept for back-compat (some places like log heartbeat reference it)
+        self.symbol = self.symbols[0]
         self.timeframe = timeframe
         self.executor = executor
         self.marks = marks
@@ -62,30 +72,37 @@ class LiveLoop:
         self.clock = clock_ms or (lambda: int(time.time() * 1000))
         self.poll_interval_s = poll_interval_s
         self.strategy_fn = strategy_fn or generate_signals
+        # Per-symbol strategy override map. Symbols not in the map fall back to
+        # `self.strategy_fn`. Empty dict ⇒ effectively single-strategy behavior.
+        self.strategy_fn_by_symbol: dict[str, Callable[..., list[Signal]]] = (
+            strategy_fn_by_symbol or {}
+        )
         self.kill_switch_path = kill_switch_path
         self.notifier: Notifier = notifier or NoOpNotifier()
         self.heartbeat_interval_s = heartbeat_interval_s
-        # Mid-session reconcile cadence. Default 4h: catches drift between
-        # the loop's local picture and the broker's, without hammering the
-        # rate-limited fetch_balance/fetch_open_orders endpoints. Live mode
-        # raises on mismatch (notifier alert, but loop continues — operator
-        # still has to manually intervene).
         self.reconcile_interval_s = reconcile_interval_s
-        self.parquet_path = bars_path(exchange, symbol, timeframe)
-        self._last_processed_ts: int | None = None
+        # Per-symbol state — parquet path + last-processed timestamp tracked independently.
+        self.parquet_paths: dict[str, Path] = {
+            s: bars_path(exchange, s, timeframe) for s in self.symbols
+        }
+        # Seed checkpoint from the decision log so restarts don't re-process bars
+        # we already saw. Without this, every loop start replays the last 10 fetched
+        # bars and re-fires signals/orders, polluting the log + tripping reconcile.
+        self._last_processed_ts: dict[str, int | None] = {
+            s: self.executor.log.latest_signal_ts(s) for s in self.symbols
+        }
         self._tf_ms = TIMEFRAME_MS[timeframe]
         self._kill_alerted = False
         self._last_heartbeat_ms: int | None = None
         self._last_reconcile_ms: int | None = None
 
-    def tick(self) -> int:
-        """Process all newly-closed bars since last call. Returns count processed."""
-        now_ms = self.clock()
-        recent = fetch_ohlcv(self.symbol, timeframe=self.timeframe, limit=10, client=self.client)
+    def _tick_symbol(self, sym: str, now_ms: int) -> int:
+        """Process newly-closed bars for one symbol. Returns count processed."""
+        recent = fetch_ohlcv(sym, timeframe=self.timeframe, limit=10, client=self.client)
         if not recent:
             return 0
 
-        last = self._last_processed_ts
+        last = self._last_processed_ts.get(sym)
         new_bars = [
             b
             for b in recent
@@ -95,20 +112,22 @@ class LiveLoop:
         if not new_bars:
             return 0
 
-        save_bars(new_bars, self.parquet_path)
+        save_bars(new_bars, self.parquet_paths[sym])
 
-        all_bars = load_bars(self.parquet_path)
+        all_bars = load_bars(self.parquet_paths[sym])
         df = bars_to_df(all_bars)
         if df.empty:
             return 0
-        signals = self.strategy_fn(df, symbol=self.symbol)
+        # Pick per-symbol strategy override if configured, otherwise the global default.
+        strategy = self.strategy_fn_by_symbol.get(sym, self.strategy_fn)
+        signals = strategy(df, symbol=sym)
         ts_to_idx = {int(t): i for i, t in enumerate(df["timestamp_ms"].tolist())}
 
         for new in new_bars:
             idx = ts_to_idx.get(new["timestamp_ms"])
             if idx is None:
                 continue
-            self.marks[self.symbol] = float(new["close"])
+            self.marks[sym] = float(new["close"])
             bar = Bar(
                 timestamp_ms=new["timestamp_ms"],
                 high=float(new["high"]),
@@ -116,9 +135,39 @@ class LiveLoop:
                 close=float(new["close"]),
             )
             self.executor.on_bar(signals[idx], bar)
-            self._last_processed_ts = new["timestamp_ms"]
+            self._last_processed_ts[sym] = new["timestamp_ms"]
 
         return len(new_bars)
+
+    def tick(self) -> int:
+        """Process all newly-closed bars across ALL symbols. Returns total count.
+
+        Per-symbol exceptions are caught + logged + notified so a single bad symbol
+        doesn't stop others. The exception bubbles up too — `run()` notifies on it.
+        """
+        now_ms = self.clock()
+        total = 0
+        first_error: Exception | None = None
+        for sym in self.symbols:
+            try:
+                total += self._tick_symbol(sym, now_ms)
+            except Exception as e:
+                self.executor.log.append(
+                    DecisionEvent(
+                        timestamp_ms=now_ms,
+                        event_type="order_rejected",
+                        symbol=sym,
+                        strategy_id=self.executor.strategy_id,
+                        rationale=f"tick_error: {type(e).__name__}: {e}",
+                    )
+                )
+                if first_error is None:
+                    first_error = e
+        if first_error is not None:
+            # Re-raise so run()'s outer handler notifies the operator. Other
+            # symbols already processed — only the first failure surfaces.
+            raise first_error
+        return total
 
     def run(self, *, max_iterations: int | None = None) -> None:
         """Forever loop. Honors kill switch (pauses, doesn't exit). Logs + notifies."""
@@ -163,12 +212,15 @@ class LiveLoop:
                 self._last_heartbeat_ms is None
                 or now_ms - self._last_heartbeat_ms >= self.heartbeat_interval_s * 1000
             ):
+                last_ts_summary = ",".join(
+                    f"{s}:{self._last_processed_ts.get(s)}" for s in self.symbols
+                )
                 self.notifier.notify(
                     "INFO",
                     "heartbeat",
                     (
-                        f"symbol={self.symbol} tick={i} "
-                        f"last_processed_ts={self._last_processed_ts} "
+                        f"symbols=[{','.join(self.symbols)}] tick={i} "
+                        f"last_ts={{{last_ts_summary}}} "
                         f"cash=${self.executor.cash:,.2f}"
                     ),
                 )
@@ -269,7 +321,14 @@ def build_from_env() -> tuple[LiveLoop, dict[str, str]]:
 
     log_path = Path(_env("TRADERBOT_LOG_PATH"))
     initial_cash = float(_env("TRADERBOT_INITIAL_CASH"))
-    symbol = _env("TRADERBOT_SYMBOL")
+    # TRADERBOT_SYMBOLS (plural, comma-separated) takes precedence for multi-asset
+    # trading. Falls back to TRADERBOT_SYMBOL (singular) for back-compat.
+    symbols_env = os.environ.get("TRADERBOT_SYMBOLS", "").strip()
+    if symbols_env:
+        symbols = [s.strip() for s in symbols_env.split(",") if s.strip()]
+    else:
+        symbols = [_env("TRADERBOT_SYMBOL")]
+    symbol = symbols[0]  # primary, for back-compat references
     timeframe = _env("TRADERBOT_TIMEFRAME")
     poll_interval_s = float(_env("TRADERBOT_POLL_INTERVAL_S"))
     risk_pct = float(_env("TRADERBOT_RISK_PCT"))
@@ -280,6 +339,26 @@ def build_from_env() -> tuple[LiveLoop, dict[str, str]]:
         or DEFAULT_STRATEGY_ID
     )
     strategy_entry = strategy_by_id(strategy_id)  # raises if unknown
+
+    # Per-symbol strategy override (added 2026-05-02). Format:
+    #   TRADERBOT_STRATEGY_PER_SYMBOL=BTC/USDT:union_meanrev_breakout,ETH/USDT:regime_aware_dipbuy
+    # Symbols not in the map fall back to the global TRADERBOT_STRATEGY.
+    # Walk-forward shows different symbols respond best to different strategies
+    # (BTC/ADA/LINK like union, ETH/SOL/AVAX like dipbuy) — single global
+    # strategy across all symbols leaves edge on the table.
+    per_sym_str = os.environ.get("TRADERBOT_STRATEGY_PER_SYMBOL", "").strip()
+    strategy_fn_by_symbol: dict[str, Callable[..., list[Signal]]] = {}
+    if per_sym_str:
+        for pair in per_sym_str.split(","):
+            pair = pair.strip()
+            if ":" not in pair:
+                continue
+            sym, sid = (p.strip() for p in pair.split(":", 1))
+            if sym and sid:
+                try:
+                    strategy_fn_by_symbol[sym] = strategy_by_id(sid).fn
+                except KeyError:
+                    pass  # unknown strategy id → silent skip, fall back to global
     heartbeat_s = float(_env("TRADERBOT_HEARTBEAT_INTERVAL_S"))
     slippage_bps = float(_env("TRADERBOT_SLIPPAGE_BPS"))
     commission_bps = float(_env("TRADERBOT_COMMISSION_BPS"))
@@ -333,6 +412,12 @@ def build_from_env() -> tuple[LiveLoop, dict[str, str]]:
     else:
         raise ValueError(f"unknown TRADERBOT_BROKER={broker_name!r}. Known: 'paper', 'kraken'")
     log = DecisionLog(log_path)
+    # Paper broker is in-memory only — without restoring from the log, every
+    # restart leaves the broker thinking it has 0 of everything while the log
+    # remembers all open positions, breaking reconcile. Walk fills once on
+    # startup and rebuild the position + COID cache.
+    if isinstance(broker, PaperBroker):
+        broker.restore_from_fills(log.all())
     # Risk-cap selection by trade_mode:
     #   paper             → default RiskCaps (loose; paper can't lose real money)
     #   live_calibration  → live_calibration_caps(initial_cash) — first 30 trades
@@ -346,7 +431,11 @@ def build_from_env() -> tuple[LiveLoop, dict[str, str]]:
 
         caps = live_full_caps(initial_cash_usd=initial_cash)
     else:
-        caps = RiskCaps()
+        # Paper: use sized-by-equity caps so a tight stop can't put 60% of the
+        # account into a single position (real bug found 2026-05-03).
+        from risk.caps import paper_caps  # noqa: PLC0415
+
+        caps = paper_caps(initial_cash_usd=initial_cash)
     executor = Executor(
         broker=broker,
         log=log,
@@ -406,6 +495,51 @@ def build_from_env() -> tuple[LiveLoop, dict[str, str]]:
 
     notifier = TelegramNotifier()
 
+    # Real-time fill alerts with batching to avoid Telegram spam when multiple
+    # symbols fill in the same tick. Buffer up incoming alerts; flush as a
+    # single combined message after a brief debounce window. With 5+ ensemble
+    # symbols on the same bar this would otherwise fire 5 separate pings; one
+    # message with 5 lines is dramatically less noisy.
+    import threading  # noqa: PLC0415
+
+    _alert_buffer: list[str] = []
+    _alert_lock = threading.Lock()
+    _flush_timer: list[threading.Timer | None] = [None]
+    FLUSH_DELAY_S = 5.0  # gather fills within 5s into one message
+
+    def _flush_alerts() -> None:
+        with _alert_lock:
+            if not _alert_buffer:
+                return
+            text = "\n".join(_alert_buffer)
+            _alert_buffer.clear()
+            _flush_timer[0] = None
+        if notifier.configured:
+            notifier.notify("INFO", "Fill", text)
+
+    def _fill_alert(side: str, symbol: str, price: float, pnl_pct: float | None) -> None:
+        short = symbol.split("/")[0] if "/" in symbol else symbol
+        if side in ("long", "buy"):
+            line = f"Buy {short} @ ${price:,.4f}"
+        elif side == "short":
+            line = f"Short {short} @ ${price:,.4f}"
+        elif side == "cover":
+            sign = "+" if (pnl_pct or 0) >= 0 else ""
+            pct_part = f" {sign}{pnl_pct:.2f}%" if pnl_pct is not None else ""
+            line = f"COVERED {short}{pct_part} @ ${price:,.4f}"
+        else:  # sell (long close)
+            sign = "+" if (pnl_pct or 0) >= 0 else ""
+            pct_part = f" {sign}{pnl_pct:.2f}%" if pnl_pct is not None else ""
+            line = f"SOLD {short}{pct_part} @ ${price:,.4f}"
+        with _alert_lock:
+            _alert_buffer.append(line)
+            if _flush_timer[0] is None:
+                _flush_timer[0] = threading.Timer(FLUSH_DELAY_S, _flush_alerts)
+                _flush_timer[0].daemon = True
+                _flush_timer[0].start()
+
+    executor._on_fill = _fill_alert
+
     # LLM filter — wraps the base strategy so every BUY signal goes through
     # Claude before the executor sees it. Rejected buys become HOLD with
     # the rejection reason in the decision log. Sells/holds pass through
@@ -434,7 +568,7 @@ def build_from_env() -> tuple[LiveLoop, dict[str, str]]:
         llm_filter_label = f"on (threshold={llm_threshold:+.2f})"
 
     loop = LiveLoop(
-        symbol=symbol,
+        symbol=symbols if len(symbols) > 1 else symbol,
         timeframe=timeframe,
         executor=executor,
         marks=marks,
@@ -442,10 +576,11 @@ def build_from_env() -> tuple[LiveLoop, dict[str, str]]:
         notifier=notifier,
         heartbeat_interval_s=heartbeat_s,
         strategy_fn=actual_strategy_fn,
+        strategy_fn_by_symbol=strategy_fn_by_symbol or None,
     )
 
     config = {
-        "symbol": symbol,
+        "symbol": ",".join(symbols) if len(symbols) > 1 else symbol,
         "timeframe": timeframe,
         "log_path": str(log_path),
         "initial_cash": f"${initial_cash:,.2f}",
@@ -478,12 +613,34 @@ def main() -> None:
     max_iters_env = os.environ.get("TRADERBOT_MAX_ITERATIONS")
     max_iters = int(max_iters_env) if max_iters_env else None
 
+    # Two-way Telegram: listen for /status, /pnl, /trades, /help from the operator's
+    # phone. Only spawned if telegram is configured. Daemon thread — dies with the loop.
+    tg_token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+    tg_chat = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
+    if tg_token and tg_chat:
+        try:
+            from pathlib import Path  # noqa: PLC0415
+
+            from tools.telegram_commands import TelegramCommandListener  # noqa: PLC0415
+
+            listener = TelegramCommandListener(
+                token=tg_token,
+                chat_id=tg_chat,
+                log_path=Path(cfg["log_path"]),
+                kill_switch_path=Path(os.environ.get("TRADERBOT_KILL_SWITCH_PATH", "data/state/KILL_SWITCH")),
+                initial_cash=float(cfg.get("initial_cash", "10000").replace("$", "").replace(",", "")),
+            )
+            listener.start()
+            print("  telegram cmds:          listening for /help /status /pnl /trades")
+        except Exception as e:  # noqa: BLE001
+            print(f"  telegram cmds:          failed to start listener: {e}")
+
     try:
         loop.run(max_iterations=max_iters)
     except KeyboardInterrupt:
         print("\nShutdown requested. Decision log is on disk at:")
         print(f"  {cfg['log_path']}")
-        print("Open the dashboard with: uv run streamlit run ui/dashboard.py")
+        print("Open the dashboard with: uv run python -m web.main  (http://localhost:8000)")
 
 
 if __name__ == "__main__":

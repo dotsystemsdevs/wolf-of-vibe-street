@@ -11,8 +11,8 @@ checks in the dashboard's Go-Live Readiness panel.
 | Step | Action |
 |------|--------|
 | 1 | Kraken: KYC done, USDT funded, **API key without withdraw** (see §0.3) |
-| 2 | This repo: `cd traderbot`, `./dev-start.sh` or `uv run streamlit run ui/dashboard.py` — header **BUILD** matches the code you expect |
-| 3 | Sidebar: Telegram test message works (optional but recommended) |
+| 2 | This repo: `cd traderbot`, `./dev-start.sh` or `uv run python -m web.main` — open http://localhost:8000, sidebar build matches the code you expect |
+| 3 | SETTINGS → Telegram alerts → Send test works (optional but recommended) |
 | 4 | **DESK** → soak = HEALTHY after ≥12h paper run (Phase 2) |
 | 5 | Symbol expectancy (30d) reviewed — you picked a strategy that isn’t all red (Phase 3) |
 

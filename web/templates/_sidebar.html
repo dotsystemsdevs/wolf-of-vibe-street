@@ -1,0 +1,23 @@
+<aside class="w-56 shrink-0 border-r border-line bg-card sticky top-[44px] self-start min-h-[calc(100vh-44px)] flex flex-col">
+    <div class="px-4 py-5 border-b border-line flex items-center gap-2.5">
+        <span class="size-1.5 rounded-full bg-green-500 inline-block shrink-0"></span>
+        <span class="font-semibold text-[15px] tracking-tight text-ink">traderbot</span>
+    </div>
+
+    <nav class="p-2 flex flex-col gap-0.5">
+        {% for item in nav_items %}
+        <a href="{{ item.path }}"
+           class="px-3 py-2 rounded-md font-mono text-[11px] font-semibold tracking-[0.12em] transition-colors
+                  {% if active_view == item.key %}bg-bg text-ink border border-line2{% else %}text-ink3 border border-transparent hover:bg-card2 hover:text-ink2{% endif %}">
+            {{ item.label }}
+        </a>
+        {% endfor %}
+    </nav>
+
+    <div class="mt-auto px-4 py-3 border-t border-line text-[9.5px] font-mono text-ink3 tracking-[0.05em]">
+        <div class="flex items-baseline justify-between gap-2">
+            <span>build</span>
+            <span class="text-ink2">{{ build }}</span>
+        </div>
+    </div>
+</aside>

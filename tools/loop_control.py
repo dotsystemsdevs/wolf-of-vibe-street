@@ -1,7 +1,7 @@
 """Start / stop / inspect the live-loop subprocess from the dashboard.
 
 The loop is spawned with `start_new_session=True` so it survives the dashboard
-process exiting (close the browser, kill streamlit — loop keeps running). The PID
+process exiting (close the browser, kill uvicorn — loop keeps running). The PID
 is persisted to `data/state/loop.pid`; status checks consult `os.kill(pid, 0)` and
 auto-clean a stale PID file if the process died.
 
@@ -94,8 +94,16 @@ def start(
 
     # Stays open for the subprocess's lifetime; closing here would close subprocess stdout.
     log_fh = open(log_path, "ab")  # noqa: SIM115
-    # PYTHONUNBUFFERED=1 → log tail in the dashboard updates in real time.
-    env = {**os.environ, "PYTHONUNBUFFERED": "1", **(extra_env or {})}
+    # Re-read .env at spawn time so config changes from the dashboard (Telegram,
+    # Kraken, LLM keys, etc.) take effect on the next loop start without needing
+    # to also restart the FastAPI process. PYTHONUNBUFFERED=1 → log tail updates live.
+    try:
+        from tools.env_config import read_env  # noqa: PLC0415
+
+        dotenv_values = read_env()
+    except Exception:  # noqa: BLE001
+        dotenv_values = {}
+    env = {**os.environ, **dotenv_values, "PYTHONUNBUFFERED": "1", **(extra_env or {})}
 
     proc = subprocess.Popen(
         _build_command(use_caffeinate),

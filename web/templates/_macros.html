@@ -1,0 +1,43 @@
+{# Shared design tokens. Every page imports from here so visuals stay aligned.
+
+   Hierarchy:
+     - Page title          h1 · 30px (declared inline in each page header)
+     - Section heading     h2 · 18px (`section_head` macro below)
+     - Card title          h2 · 16px (kept local to settings.html where the card
+                                      pattern is form-specific)
+   Spacing:
+     - Page header         pb-8
+     - Sections            py-8 separated by `divider()`
+#}
+
+{% macro divider() -%}
+<hr class="divider-bleed">
+{%- endmacro %}
+
+{% macro section_head(title, sub='') %}
+<div class="mb-4 flex items-baseline justify-between flex-wrap gap-2">
+    <h2 class="text-[18px] font-semibold tracking-tight text-ink">{{ title }}</h2>
+    {% if sub %}<span class="text-[11.5px] text-ink3">{{ sub }}</span>{% endif %}
+</div>
+{% endmacro %}
+
+{% macro kpi(label, value, delta='', sign='') %}
+<div class="bg-card border border-line rounded-lg px-4 py-3.5">
+    <div class="text-[10px] font-semibold tracking-[0.1em] text-ink3 uppercase">{{ label }}</div>
+    <div class="font-mono text-lg font-bold tabular-nums mt-1.5
+        {% if sign == 'pos' %}text-green-500{% elif sign == 'neg' %}text-red-500{% else %}text-ink{% endif %}">
+        {{ value }}
+    </div>
+    {% if delta %}
+    <div class="font-mono text-[11px] mt-0.5
+        {% if sign == 'pos' %}text-green-500{% elif sign == 'neg' %}text-red-500{% else %}text-ink3{% endif %}">
+        {{ delta }}
+    </div>
+    {% endif %}
+</div>
+{% endmacro %}
+
+{# Status pill — uses CSS classes that pull from theme vars. Theme-aware. #}
+{% macro pill(label, tone='neutral') %}
+<span class="chip chip--{{ tone }}"><span class="chip__dot"></span>{{ label }}</span>
+{% endmacro %}

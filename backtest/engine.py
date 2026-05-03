@@ -19,7 +19,7 @@ from backtest.metrics import (
     sortino,
     win_rate,
 )
-from risk.sizing import position_size
+from risk.sizing import position_size, vol_targeted_risk_pct
 from signals.types import Signal
 
 
@@ -29,6 +29,12 @@ class BacktestConfig:
     risk_pct: float = 0.005
     commission_bps: float = 10.0  # 0.10% — realistic Binance spot retail
     slippage_bps: float = 5.0  # 0.05% — fills slightly worse than mid
+    # Vol-targeting (off by default, opt-in). When enabled, position sizes
+    # scale inversely with recent realized volatility so each trade contributes
+    # roughly constant ex-ante risk to the portfolio. Smaller positions in
+    # high-vol regimes; larger positions in calm regimes. Bounded by floor/ceiling.
+    vol_target: float = 0.0   # 0 = disabled. Typical: 0.04 (4% per-trade vol target)
+    vol_lookback: int = 24    # bars of close-to-close stdev for realized vol
 
 
 @dataclass(frozen=True, slots=True)
@@ -143,7 +149,19 @@ def run_backtest(
                 commission_bps=config.commission_bps,
             )
             equity_now = cash + open_qty * bars_close[i]
-            qty = position_size(equity_now, fill, sig.stop, risk_pct=config.risk_pct)
+            # Compute effective risk_pct — vol-targeted if enabled, else fixed.
+            effective_risk_pct = config.risk_pct
+            if config.vol_target > 0 and i >= config.vol_lookback:
+                # Realized vol = stdev of last N close-to-close log returns.
+                window = bars_close[i - config.vol_lookback + 1 : i + 1]
+                rets = pd.Series(window).pct_change().dropna()
+                rv = float(rets.std()) if len(rets) > 1 else 0.0
+                effective_risk_pct = vol_targeted_risk_pct(
+                    base_risk_pct=config.risk_pct,
+                    realized_vol=rv,
+                    target_vol=config.vol_target,
+                )
+            qty = position_size(equity_now, fill, sig.stop, risk_pct=effective_risk_pct)
             cost = qty * fill
             commission = cost * config.commission_bps / 10_000.0
             if qty > 0 and cost + commission <= cash:

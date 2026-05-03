@@ -114,5 +114,19 @@ class DecisionLog:
         cur = self._conn.execute("SELECT COUNT(*) FROM decisions")
         return int(cur.fetchone()[0])
 
+    def latest_signal_ts(self, symbol: str) -> int | None:
+        """Highest signal timestamp for a symbol, or None if no signal logged yet.
+
+        Used by LiveLoop to seed its `_last_processed_ts` checkpoint on startup,
+        so a restart doesn't replay bars already turned into signals/orders.
+        """
+        cur = self._conn.execute(
+            "SELECT MAX(timestamp_ms) FROM decisions "
+            "WHERE event_type = 'signal' AND symbol = ?",
+            (symbol,),
+        )
+        result = cur.fetchone()[0]
+        return int(result) if result is not None else None
+
     def close(self) -> None:
         self._conn.close()

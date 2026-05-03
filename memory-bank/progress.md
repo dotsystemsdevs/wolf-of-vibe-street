@@ -5,6 +5,91 @@
 
 ---
 
+## 2026-04-27 — Multi-symbol correctness pass + Desk redesign
+
+Fixed two production-found multi-symbol bugs and pushed a cleaner Desk layout.
+
+- **`make_client_order_id` now keys on `(strategy_id, symbol, signal_id, attempt)`** (was missing `symbol`). Without it, three symbols with signals on the same bar timestamp generated identical COIDs → paper broker's idempotency cache returned the first symbol's fill for the rest → log corrupted with phantom-symbol fills, reconcile failed forever. Updated all callers + 11 test sites. New regression test `test_make_client_order_id_distinct_per_symbol`.
+- **`Executor` open-position state is now per-symbol dicts** (`_open_stops`, `_open_targets`, `_open_signal_ids`). Was single fields → SOL BUY overwrote BTC's stop/target → a later BTC bar.high triggered phantom `target_hit` against SOL's level. Class docstring updated from "single-symbol" → "multi-symbol-aware, one-position-per-symbol".
+- **`LiveLoop` now seeds `_last_processed_ts` from the decision log** on construction (`DecisionLog.latest_signal_ts(symbol)`). Previously every restart replayed the last 10 fetched bars and re-fired signals/orders. New regression test `test_checkpoint_loaded_from_log_skips_replay`.
+- **Desk page (`web/templates/desk.html`) restructured per user feedback:**
+  - Merged "Bot pulse" + "Overview" into one compact 8-cell `Status` section.
+  - Each price card now has a 3-event recent-events strip directly under the chart.
+  - "Activity" full-event list moved to the bottom of the page.
+  - Equity chart now uses the same deferred-init + `clientWidth/Height` pattern as price charts (was failing to render under grid layout).
+- Build tag → `2026-04-27-desk-compact`.
+- Live config: `.env` flipped from `1h` → `15m` so paper-trading actually sees signals during the day.
+- Live broker (PID 53504) running clean post-fix on 15m × 3 symbols, reconcile OK.
+
+276/276 tests green.
+
+**Next:** Re-validate `regime_aware` on 15m via walk-forward (current verdict was on 1h). Consider extending it with a downtrend strategy so the bot isn't permanently flat in bear regimes.
+
+**Blockers:** None.
+
+**New lessons:** P-34 (multi-symbol COID must include symbol), P-35 (live-loop bootstrap must persist its checkpoint).
+
+---
+
+## 2026-04-28 — 15m walk-forward fail; dipbuy variant deployed
+
+Validated the recent timeframe switch and tweaked the strategy roster.
+
+- Backfilled 60d × 15m for BTC/ETH/SOL (5760 bars each).
+- Walk-forward across **all 9 strategies × 3 symbols × 6 folds**:
+  - **15m**: every strategy FAIL/WEAK with negative aggregate returns. `mean_rev_no_stops` was the only one slightly positive (BTC +0.1%, SOL +0.4%) but still WEAK. 15m is too choppy for the current strategy library.
+  - **1h**: `regime_aware` is the best multi-symbol package (1 WEAK + 2 FAIL with positive ETH/SOL aggregate).
+- Reverted `.env TRADERBOT_TIMEFRAME` from `15m` → `1h`. The 15m switch was right instinct (more feedback) but wrong call from an edge standpoint.
+- Added `regime_aware_dipbuy`: same router but downtrend regime now uses `mean_rev_no_stops` instead of force-hold. Spot-only means we can't short, but we can still buy oversold bounces during a bear regime.
+- Head-to-head 1h walk-forward: dipbuy upgraded SOL FAIL→WEAK and gives ~70% more trade activity per symbol (~50 vs ~30) with comparable aggregate returns. Deployed live: `TRADERBOT_STRATEGY=regime_aware_dipbuy`.
+- Manual signal sanity-check: dipbuy generates 2-3 downtrend-bucket BUYs per 200 bars on ETH/SOL — confirms the new code path actually fires.
+
+**Next:** Let it run uninterrupted for 24h, then check whether dipbuy's extra activity converts to additional fills (no real trade signals fired yet — last bar was 07:00 UTC, next 09:00).
+
+**Blockers:** None.
+
+**New lessons:** none new (the validation work was direct application of S-53 + S-49).
+
+---
+
+## 2026-04-26 — Streamlit → FastAPI dashboard rewrite
+
+After several rounds of fighting Streamlit's default styling and the 30s full-page-reload UX, ditched Streamlit entirely and rebuilt the dashboard as a custom FastAPI app.
+
+- New stack: **FastAPI + Jinja2 + Tailwind (CDN) + HTMX + lightweight-charts.js**. Zero npm toolchain, server-rendered, real-time-ish via HTMX partials.
+- New layout in `web/`:
+  - `web/main.py` — FastAPI app + all routes (DESK / GO LIVE / COMPARE / TAPE / MAP / SETTINGS / topbar partial / 12 POST handlers for settings actions).
+  - `web/readiness.py` — extracted `go_live_readiness` and `calibration_fill_count` from old dashboard.py as pure tested functions.
+  - `web/templates/` — `base.html`, `_topbar.html` (HTMX-refreshes every 5s), `_sidebar.html`, `desk.html`, `settings.html`, `go_live.html`, `tape.html`, `map.html`, `compare.html`, `stub.html`.
+  - `web/static/app.css` — minimal CSS supplementing Tailwind.
+- DESK: KPI grid (Equity/Cash/Today P&L/Open positions), soak-health banner, lightweight-charts equity curve, open-positions table, recent-trades table.
+- SETTINGS: light-toggle + 3 safe sections (Loop, Telegram, LLM filter) + visually distinct **DANGER ZONE** (red border-left, tinted bg) holding Kill switch, Live session, Kraken keys, Reset log. All actions POST → 303 redirect → flash banner.
+- TAPE: filterable decision-log grid with event-type checkboxes.
+- MAP: simple pipeline-flow diagram + nav cards.
+- COMPARE: backtest comparison form + ranked results table (no plotly figure — just monospace table; `make_figure` still exists for CLI HTML reports).
+- GO LIVE: 11-item readiness checklist with done/in-progress/todo counts + calibration progress bar.
+- Top status bar: **sticky to viewport top, full-bleed**, mode chip + symbol/timeframe + next-bar countdown + UTC clock + RUN/IDLE/OFF status with uptime + PID. Streamlit's default header was hidden via CSS so the bar literally sits at the top edge.
+- Active view persists across reloads via `?view=` query param (Streamlit version reset to DESK on every 30s reload — frustrating).
+
+Cleanup:
+- Removed `ui/dashboard.py` (Streamlit, 1859 lines), `ui/compare_tab.py`, `ui/tape_map_views.py`, `.streamlit/`. Kept `ui/views.py` (used by `web/main.py`) and `ui/report.py` (CLI text summary, no Streamlit).
+- `pyproject.toml`: removed `streamlit`, added `fastapi`, `jinja2`, `uvicorn`, `python-multipart`. ~50 transitive deps gone.
+- `dev-start.sh` now launches `uvicorn web.main:app` on port 8000 instead of streamlit on 8501.
+- `tests/test_dashboard_helpers.py` → `tests/test_readiness.py` with imports updated. All 7 tests still pass.
+- `workers/live_loop.py` shutdown message points at `python -m web.main` instead of streamlit run.
+- `tools/loop_control.py` docstring updated.
+- `CLAUDE.md` folder convention: `ui/` is now pure data + CLI; `web/` is the FastAPI dashboard.
+- `@architecture.md` file map updated.
+- `docs/GO_LIVE.md` step 2 updated.
+
+**Why:** User explicitly said Streamlit's defaults look bad and they wanted "den snygga" — full visual control. Custom HTML+Tailwind+HTMX gets us there with way less weight than React, and the dashboard is mostly read-only displays so HTMX is the right tool. See `~/.claude/projects/-Users-diaohm-Desktop-trade/memory/feedback_ui_stack.md`.
+
+**Next:** Live deploy (operator launches `./dev-start.sh`, opens http://localhost:8000). If anything's broken in real use, fix incrementally. Possible follow-ups: dark/light theme toggle (currently dark only), mobile responsive checks, real-time WebSocket for live KPI updates instead of HTMX 5s poll.
+
+**Blockers:** none.
+
+---
+
 ## 2026-04-27 — External research curation (Vibe, TradingAgents, AI-Trader, DEX, NOFX, OpenAlice, etc.)
 
 - `knowledge.md` §9.5 — new table: curated GitHub + site links the user provided, with one-line "how this relates to WOLF" (CEX stack stays primary; DEX/Trading Strategy called out as a different market model). arXiv link for TradingAgents paper.
