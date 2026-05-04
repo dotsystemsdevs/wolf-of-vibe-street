@@ -91,21 +91,18 @@ def test_tick_error_notifies(tmp_path: Path) -> None:
     assert "binance 502" in errs[0][2]
 
 
-def test_heartbeat_fires_on_interval(tmp_path: Path) -> None:
-    """First iter: heartbeat fires. Within 10s: no extra heartbeat. After 10s: another."""
+def test_heartbeat_does_not_fire_telegram(tmp_path: Path) -> None:
+    """Heartbeat Telegram pings were removed 2026-05-04 per operator request —
+    they were noisy noise without operational signal. The 6×/day daily-summary
+    cron is the alive-check now. Loop must NOT emit any 'heartbeat'-titled
+    notifications regardless of how long it runs."""
     now = [0]
     loop, notifier, _ = _loop(tmp_path, now=now)
 
     loop.run(max_iterations=1)
-    hbs = [t for level, t, _ in notifier.events if t == "heartbeat"]
-    assert len(hbs) == 1
-
     now[0] = 5_000
     loop.run(max_iterations=1)
-    hbs = [t for level, t, _ in notifier.events if t == "heartbeat"]
-    assert len(hbs) == 1  # still only one — within 10 s window
-
-    now[0] = 11_000
+    now[0] = 30_000
     loop.run(max_iterations=1)
-    hbs = [t for level, t, _ in notifier.events if t == "heartbeat"]
-    assert len(hbs) == 2
+    hbs = [t for _level, t, _body in notifier.events if t == "heartbeat"]
+    assert hbs == []

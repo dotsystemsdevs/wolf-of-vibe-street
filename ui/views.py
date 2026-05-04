@@ -70,50 +70,70 @@ def trades_dataframe(rows: list[dict[str, Any]]) -> pd.DataFrame:
 
     fills = [r for r in rows if r["event_type"] == "order_filled"]
     trades: list[dict[str, Any]] = []
-    # Per-symbol open-buy tracker. Without this, a SOL sell would pair with a
-    # BTC buy if BTC was the most recently opened position — the math then
-    # crosses asset prices (e.g. exit SOL at $80 vs entry BTC at $76,200) and
-    # produces a phantom $260k+ "trade". Real bug found 2026-05-02.
-    open_buy_by_sym: dict[str, dict[str, Any]] = {}
+    # Per-symbol open-entry tracker, direction-aware. A long entry pairs with
+    # the next sell on that symbol; a short entry pairs with the next cover.
+    # Without per-symbol tracking, exits pair across asset prices and produce
+    # phantom $260k "trades" (real bug 2026-05-02).
+    open_long_by_sym: dict[str, dict[str, Any]] = {}
+    open_short_by_sym: dict[str, dict[str, Any]] = {}
     for f in fills:
         sym = str(f.get("symbol") or "")
-        if f["side"] == "buy":
-            open_buy_by_sym[sym] = f
-        elif f["side"] == "sell" and sym in open_buy_by_sym:
-            open_buy = open_buy_by_sym.pop(sym)
-            qty = float(open_buy["quantity"])
-            entry_px = float(open_buy["price"])
-            exit_px = float(f["price"])
-            entry_fee = _fee_from_row(open_buy)
-            exit_fee = _fee_from_row(f)
-            gross = (exit_px - entry_px) * qty
-            pnl = gross - entry_fee - exit_fee
-            stop_px = stops_by_sig.get((sym, open_buy.get("signal_id")))
-            # R-multiple: pnl / initial_risk. Long-only so risk = (entry - stop) * qty.
-            # Skip if stop is missing or above entry (degenerate).
-            r_multiple: float | None = None
-            if stop_px is not None and entry_px > stop_px:
+        side = f["side"]
+        if side == "buy":
+            open_long_by_sym[sym] = f
+            continue
+        if side == "short":
+            open_short_by_sym[sym] = f
+            continue
+        # Exit branches: pair with the matching open entry on this symbol.
+        if side == "sell" and sym in open_long_by_sym:
+            entry_fill = open_long_by_sym.pop(sym)
+            direction = "long"
+        elif side == "cover" and sym in open_short_by_sym:
+            entry_fill = open_short_by_sym.pop(sym)
+            direction = "short"
+        else:
+            continue
+        qty = float(entry_fill["quantity"])
+        entry_px = float(entry_fill["price"])
+        exit_px = float(f["price"])
+        entry_fee = _fee_from_row(entry_fill)
+        exit_fee = _fee_from_row(f)
+        # Long P&L: (exit - entry) × qty. Short P&L: (entry - exit) × qty.
+        gross = (exit_px - entry_px) * qty if direction == "long" else (entry_px - exit_px) * qty
+        pnl = gross - entry_fee - exit_fee
+        ret_pct = (exit_px / entry_px - 1.0) if direction == "long" else (entry_px / exit_px - 1.0)
+        stop_px = stops_by_sig.get((sym, entry_fill.get("signal_id")))
+        # R-multiple: pnl / initial_risk. Long: risk = entry - stop. Short: stop - entry.
+        r_multiple: float | None = None
+        if stop_px is not None:
+            if direction == "long" and entry_px > stop_px:
                 initial_risk = (entry_px - stop_px) * qty
                 if initial_risk > 0:
                     r_multiple = pnl / initial_risk
-            trades.append(
-                {
-                    "symbol": sym,
-                    "entry_ts": int(open_buy["timestamp_ms"]),
-                    "exit_ts": int(f["timestamp_ms"]),
-                    "holding_ms": int(f["timestamp_ms"]) - int(open_buy["timestamp_ms"]),
-                    "qty": qty,
-                    "entry_price": entry_px,
-                    "exit_price": exit_px,
-                    "pnl": pnl,
-                    "gross_pnl": gross,
-                    "fees": entry_fee + exit_fee,
-                    "return_pct": exit_px / entry_px - 1.0,
-                    "exit_reason": f["rationale"] or "",
-                    "stop": stop_px,
-                    "r_multiple": r_multiple,
-                }
-            )
+            elif direction == "short" and stop_px > entry_px:
+                initial_risk = (stop_px - entry_px) * qty
+                if initial_risk > 0:
+                    r_multiple = pnl / initial_risk
+        trades.append(
+            {
+                "symbol": sym,
+                "entry_ts": int(entry_fill["timestamp_ms"]),
+                "exit_ts": int(f["timestamp_ms"]),
+                "holding_ms": int(f["timestamp_ms"]) - int(entry_fill["timestamp_ms"]),
+                "qty": qty,
+                "entry_price": entry_px,
+                "exit_price": exit_px,
+                "pnl": pnl,
+                "gross_pnl": gross,
+                "fees": entry_fee + exit_fee,
+                "return_pct": ret_pct,
+                "exit_reason": f["rationale"] or "",
+                "stop": stop_px,
+                "r_multiple": r_multiple,
+                "direction": direction,
+            }
+        )
     return (
         pd.DataFrame(trades)
         if trades
@@ -133,6 +153,7 @@ def trades_dataframe(rows: list[dict[str, Any]]) -> pd.DataFrame:
                 "exit_reason",
                 "stop",
                 "r_multiple",
+                "direction",
             ]
         )
     )
@@ -173,17 +194,24 @@ def equity_curve(rows: list[dict[str, Any]], initial_cash: float) -> pd.DataFram
         price = float(f["price"])
         fill_qty = float(f["quantity"])
         fee = _fee_from_row(f)
+        side = f["side"]
         last_px_by_sym[sym] = price
-        if f["side"] == "buy":
+        # Direction-aware cash flow: longs pay (buy) or receive (sell);
+        # shorts receive (short-sale proceeds) or pay (cover).
+        if side in ("buy", "cover"):
             cash -= price * fill_qty + fee
             qty_by_sym[sym] = qty_by_sym.get(sym, 0.0) + fill_qty
-        else:
+        else:  # sell or short
             cash += price * fill_qty - fee
             qty_by_sym[sym] = qty_by_sym.get(sym, 0.0) - fill_qty
-            if qty_by_sym[sym] <= 1e-9:
-                qty_by_sym[sym] = 0.0
+        # Flat tolerance — collapse epsilon-drift to exactly 0 on either side.
+        if abs(qty_by_sym[sym]) <= 1e-9:
+            qty_by_sym[sym] = 0.0
+        # Position value sums signed qty × current mark — shorts contribute
+        # negative position_value (which is correct: a -100-share short at
+        # $10 represents a $1k liability that nets against cash).
         position_value = sum(
-            q * last_px_by_sym.get(s, 0.0) for s, q in qty_by_sym.items() if q > 0
+            q * last_px_by_sym.get(s, 0.0) for s, q in qty_by_sym.items() if q != 0
         )
         points.append(
             {
@@ -212,37 +240,59 @@ def open_positions(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         sym = f["symbol"]
         price = float(f["price"])
         fill_qty = float(f["quantity"])
+        side = f["side"]
         cur = pos.get(
             sym,
             {"qty": 0.0, "avg_entry": 0.0, "last_price": 0.0, "entry_ts": 0, "signal_id": None},
         )
         cur["last_price"] = price
-        if f["side"] == "buy":
+        # Direction-aware: buy/cover increase qty, sell/short decrease qty.
+        # A "short" entry from a flat position drives qty negative — that IS the
+        # position. Don't zero-clamp below a tiny threshold like the long-only
+        # version did (real bug 2026-05-04: DOGE shorted to -3456, log-vy showed 0).
+        if side in ("buy", "cover"):
             new_qty = cur["qty"] + fill_qty
-            cur["avg_entry"] = (
-                (cur["avg_entry"] * cur["qty"] + price * fill_qty) / new_qty
-                if new_qty > 0
-                else price
-            )
+            if cur["qty"] >= 0 and new_qty > 0:
+                # Adding to (or opening) a long → weighted avg
+                cur["avg_entry"] = (
+                    (cur["avg_entry"] * cur["qty"] + price * fill_qty) / new_qty
+                    if cur["qty"] > 0
+                    else price
+                )
             cur["qty"] = new_qty
-            cur["entry_ts"] = int(f["timestamp_ms"])
-            cur["signal_id"] = f.get("signal_id")
-        else:
-            cur["qty"] -= fill_qty
-            if cur["qty"] <= 1e-9:
-                cur = {
-                    "qty": 0.0,
-                    "avg_entry": 0.0,
-                    "last_price": price,
-                    "entry_ts": 0,
-                    "signal_id": None,
-                }
+            if side == "buy":
+                cur["entry_ts"] = int(f["timestamp_ms"])
+                cur["signal_id"] = f.get("signal_id")
+        else:  # sell or short
+            new_qty = cur["qty"] - fill_qty
+            if cur["qty"] <= 0 and new_qty < 0:
+                # Adding to (or opening) a short → weighted avg of short entries
+                cur["avg_entry"] = (
+                    (cur["avg_entry"] * abs(cur["qty"]) + price * fill_qty) / abs(new_qty)
+                    if cur["qty"] < 0
+                    else price
+                )
+            cur["qty"] = new_qty
+            if side == "short":
+                cur["entry_ts"] = int(f["timestamp_ms"])
+                cur["signal_id"] = f.get("signal_id")
+        # Flat (closed): reset state. Tolerate epsilon-level drift either side.
+        if abs(cur["qty"]) <= 1e-9:
+            cur = {
+                "qty": 0.0,
+                "avg_entry": 0.0,
+                "last_price": price,
+                "entry_ts": 0,
+                "signal_id": None,
+            }
         pos[sym] = cur
 
     # Build a (symbol, signal_id) → (stop, target) map from order_placed metadata.
     stops_by_sig: dict[tuple[str, str | None], dict[str, float | None]] = {}
     for r in rows:
-        if r["event_type"] != "order_placed" or r.get("side") != "buy":
+        if r["event_type"] != "order_placed":
+            continue
+        if r.get("side") not in ("buy", "short"):
             continue
         meta = r.get("metadata_json")
         if meta:
@@ -259,7 +309,9 @@ def open_positions(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
     out: list[dict[str, Any]] = []
     for sym, p in pos.items():
-        if p["qty"] <= 0:
+        # Surface both longs (qty > 0) and shorts (qty < 0). Only flat positions
+        # are filtered out. Display layer can use sign for direction badge.
+        if abs(p["qty"]) <= 1e-9:
             continue
         levels = stops_by_sig.get((sym, p.get("signal_id")), {})
         out.append(

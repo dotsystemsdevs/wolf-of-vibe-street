@@ -43,6 +43,10 @@ from risk.human_gate import (  # noqa: E402
 )
 from tools import cron_manage, env_config, loop_control  # noqa: E402
 from tools.notifier import TelegramNotifier  # noqa: E402
+from tools.strategy_analyzer import (  # noqa: E402
+    parse_per_symbol_map as _parse_per_symbol_map,
+    per_strategy_pnl as _per_strategy_pnl,
+)
 from ui.views import (  # noqa: E402
     day_pnl,
     equity_curve,
@@ -479,6 +483,16 @@ def desk(request: Request):
             "age_min": age_min,
         })
 
+    # Per-strategy P&L breakdown (Phase 2). Tells the operator which alpha is
+    # actually working in live, with decay flag if a strategy goes negative
+    # over 5+ trades. Empty list = no closed trades yet.
+    strategy_stats = _per_strategy_pnl(
+        trades,
+        per_symbol_map=_parse_per_symbol_map(),
+        default_strategy=strategy_id,
+        now_ms=now_ms,
+    ) if not trades.empty else []
+
     # Activity feed — last 15 events (any type), newest first. Live pulse of the bot.
     activity: list[dict] = []
     for r in rows[-15:][::-1]:
@@ -503,6 +517,7 @@ def desk(request: Request):
             "desk",
             kpis=kpis,
             perf=perf,
+            strategy_stats=strategy_stats,
             positions=enriched_positions,
             equity_data=equity_data,
             price_charts=price_charts,

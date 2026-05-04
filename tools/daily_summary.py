@@ -27,6 +27,10 @@ if str(ROOT) not in sys.path:
 
 from data.store import bars_path, load_bars  # noqa: E402
 from tools.notifier import TelegramNotifier  # noqa: E402
+from tools.strategy_analyzer import (  # noqa: E402
+    parse_per_symbol_map,
+    per_strategy_pnl,
+)
 from ui.views import open_positions, trades_dataframe  # noqa: E402
 
 DB_PATH = ROOT / "data" / "decision_log" / "traderbot.db"
@@ -177,6 +181,30 @@ def build_summary() -> tuple[str, float, int]:
     if new_entries:
         lines.append("")
         lines.append(f"New entries: {', '.join(new_entries)}")
+
+    # Per-strategy P&L breakdown — only when we actually have closed trades.
+    # Surfaces which alpha is leading and flags decay candidates so the operator
+    # sees if one strategy is silently dragging the portfolio.
+    if not trades.empty:
+        per_sym = parse_per_symbol_map()
+        default_strat = (
+            os.environ.get("TRADERBOT_STRATEGY")
+            or os.environ.get("TRADERBOT_STRATEGY_ID")
+            or "regime_aware_dipbuy"
+        )
+        stats = per_strategy_pnl(
+            trades, per_symbol_map=per_sym, default_strategy=default_strat
+        )
+        if stats:
+            lines.append("")
+            lines.append("Strategies (lifetime)")
+            for s in stats:
+                short = s.strategy_id.replace("regime_aware_", "RA-").replace(
+                    "union_meanrev_breakout", "Union"
+                ).replace("ensemble_daytrader", "Ensemble").replace("RA-dipbuy", "Dipbuy")
+                sign = "+" if s.total_pnl >= 0 else ""
+                flag = " ⚠" if s.is_decaying else ""
+                lines.append(f"{short}: {sign}${s.total_pnl:.0f} ({s.trades}t){flag}")
 
     return "\n".join(lines), equity, now_ms
 

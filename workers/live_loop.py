@@ -208,23 +208,10 @@ class LiveLoop:
                     )
                     self.notifier.notify("ERROR", "Tick failed", f"{type(e).__name__}: {e}")
 
-            if (
-                self._last_heartbeat_ms is None
-                or now_ms - self._last_heartbeat_ms >= self.heartbeat_interval_s * 1000
-            ):
-                last_ts_summary = ",".join(
-                    f"{s}:{self._last_processed_ts.get(s)}" for s in self.symbols
-                )
-                self.notifier.notify(
-                    "INFO",
-                    "heartbeat",
-                    (
-                        f"symbols=[{','.join(self.symbols)}] tick={i} "
-                        f"last_ts={{{last_ts_summary}}} "
-                        f"cash=${self.executor.cash:,.2f}"
-                    ),
-                )
-                self._last_heartbeat_ms = now_ms
+            # Heartbeat notification removed 2026-05-04 per operator request.
+            # The 6×/day daily-summary cron is the alive-signal now; hourly
+            # heartbeat pings on Telegram were noise. Field still kept on the
+            # instance for tests/debugging but never triggers a notify.
 
             # Periodic mid-session reconcile — every reconcile_interval_s, pull
             # broker positions/open orders, compare against decision-log-derived
@@ -262,14 +249,11 @@ class LiveLoop:
                             },
                         )
                     )
-                    if not rec.is_clean:
-                        self.notifier.notify(
-                            "ERROR",
-                            "Reconcile mismatch (periodic)",
-                            rec.summary(),
-                        )
+                    # Reconcile mismatches are logged to the decision log + surfaced in the
+                    # daily summary + dashboard. Telegram-noise removed 2026-05-04 per
+                    # operator request — only critical errors should ping the phone.
                 except Exception as e:  # noqa: BLE001
-                    # Reconcile failures must not crash the loop. Log + notify.
+                    # Reconcile *crashing* is rare and serious — keep this Telegram alert.
                     self.notifier.notify(
                         "ERROR",
                         "Periodic reconcile failed",

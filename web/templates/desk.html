@@ -290,6 +290,64 @@
     </section>
 
     {# ============================================================
+       STRATEGIES — per-strategy P&L + decay flag (Phase 2)
+       ============================================================ #}
+    {% if strategy_stats %}
+    {{ divider() }}
+    <section class="py-8">
+        {% set decaying_count = strategy_stats | selectattr("is_decaying") | list | length %}
+        {{ section_head("Strategies",
+            (strategy_stats|length|string) + " active · " +
+            (decaying_count|string) + " decaying" if decaying_count else
+            (strategy_stats|length|string) + " active · all green") }}
+        <div class="sheet-wrap" style="max-height: none;">
+            <table class="sheet">
+                <thead>
+                    <tr class="heads">
+                        <th>Strategy</th>
+                        <th>Symbols</th>
+                        <th>Trades</th>
+                        <th>WR</th>
+                        <th>PF</th>
+                        <th>Total</th>
+                        <th>24h</th>
+                        <th>7d</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for s in strategy_stats %}
+                    {% set p_sign = 'pos' if s.total_pnl > 0 else ('neg' if s.total_pnl < 0 else 'muted') %}
+                    {% set d24_sign = 'pos' if s.pnl_24h > 0 else ('neg' if s.pnl_24h < 0 else 'muted') %}
+                    {% set d7_sign = 'pos' if s.pnl_7d > 0 else ('neg' if s.pnl_7d < 0 else 'muted') %}
+                    {% set short = s.strategy_id|replace("regime_aware_dipbuy", "Dipbuy")|replace("union_meanrev_breakout", "Union")|replace("ensemble_daytrader", "Ensemble")|replace("regime_aware_long_short", "L/S")|replace("regime_aware_aggressive", "Aggr") %}
+                    <tr>
+                        <td>{{ short }}</td>
+                        <td class="muted" style="font-size: 10px;">{{ s.symbols | join(", ") }}</td>
+                        <td class="num">{{ s.trades }} ({{ s.wins }}W/{{ s.losses }}L)</td>
+                        <td class="num muted">{{ "{:.0f}".format(s.win_rate * 100) }}%</td>
+                        <td class="num {% if s.profit_factor > 1.5 %}pos{% elif s.profit_factor < 1.0 %}neg{% else %}muted{% endif %}">
+                            {% if s.profit_factor == 0 %}—{% elif s.profit_factor|string == 'inf' %}∞{% else %}{{ "{:.2f}".format(s.profit_factor) }}{% endif %}
+                        </td>
+                        <td class="num {{ p_sign }}">{{ "${:+.2f}".format(s.total_pnl) }}</td>
+                        <td class="num {{ d24_sign }}">{{ "${:+.2f}".format(s.pnl_24h) }}</td>
+                        <td class="num {{ d7_sign }}">{{ "${:+.2f}".format(s.pnl_7d) }}</td>
+                        <td>
+                            {% if s.is_decaying %}
+                            <span class="chip chip--red" title="{{ s.decay_reason }}">decaying</span>
+                            {% else %}
+                            <span class="chip chip--green">ok</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+    {% endif %}
+
+    {# ============================================================
        RECENT TRADES
        ============================================================ #}
     {% if recent_trades %}
