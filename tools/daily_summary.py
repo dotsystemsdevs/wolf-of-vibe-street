@@ -25,6 +25,7 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from data.news_store import NewsStore  # noqa: E402
 from data.store import bars_path, load_bars  # noqa: E402
 from tools.notifier import TelegramNotifier  # noqa: E402
 from tools.strategy_analyzer import (  # noqa: E402
@@ -181,6 +182,35 @@ def build_summary() -> tuple[str, float, int]:
     if new_entries:
         lines.append("")
         lines.append(f"New entries: {', '.join(new_entries)}")
+
+    # News sentiment summary — top + bottom symbols by 24h avg sentiment. Gives
+    # operator context for what the market is reading right now. Only included
+    # when the news store has data (Phase 3 cron may not have fired yet).
+    try:
+        store = NewsStore()
+        if store.count() > 0:
+            sentiments = []
+            for sym in symbols:
+                summary = store.summary(sym, window_h=24)
+                if summary["n_articles"] > 0:
+                    sentiments.append((sym, summary["avg_score"], summary["n_articles"]))
+            store.close()
+            if sentiments:
+                sentiments.sort(key=lambda x: -x[1])
+                lines.append("")
+                lines.append("Sentiment 24h (avg)")
+                # Top 3 + bottom 3 — middle gets dropped to keep message short
+                show = sentiments[:3]
+                if len(sentiments) > 6:
+                    show += sentiments[-3:]
+                else:
+                    show = sentiments
+                for sym, avg, n in show:
+                    short = _short_sym(sym)
+                    sign = "+" if avg >= 0 else ""
+                    lines.append(f"{short}: {sign}{avg:.2f} ({n}n)")
+    except Exception:  # noqa: BLE001
+        pass  # news pipeline failure must not block the digest
 
     # Per-strategy P&L breakdown — only when we actually have closed trades.
     # Surfaces which alpha is leading and flags decay candidates so the operator
