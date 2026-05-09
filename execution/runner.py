@@ -53,6 +53,8 @@ class Executor:
         risk_pct: float = 0.005,
         trade_mode: str = "paper",
         on_fill=None,  # optional callback(side, symbol, price, pnl_pct=None)
+        conviction_evaluator=None,  # optional ConvictionMultiplier
+        conviction_context_fn=None,  # optional callable(signal, bar) → context dict
     ):
         self.broker = broker
         self.log = log
@@ -66,6 +68,13 @@ class Executor:
         # "SOLD SOL +2.1%"). Decoupled from the broker so tests don't pull in
         # a notifier.
         self._on_fill = on_fill
+        # Optional LLM conviction multiplier (Phase 4). When set, every entry
+        # asks the LLM for a [0.3, 1.5] sizing multiplier given fresh context
+        # (news, regime, recent strategy P&L) and adjusts the rule-based qty.
+        # Never zero — LLM cannot veto. The context_fn pulls the data the
+        # evaluator needs without coupling Executor to news/strategy modules.
+        self._conviction_evaluator = conviction_evaluator
+        self._conviction_context_fn = conviction_context_fn
         self.daily_high_water = initial_cash
         self.weekly_high_water = initial_cash
         self._current_day: int | None = None
@@ -158,9 +167,29 @@ class Executor:
         """
         assert signal.stop is not None
         eq = self.equity({signal.symbol: bar.close})
-        qty = position_size(eq, bar.close, signal.stop, risk_pct=self.risk_pct)
-        if qty <= 0:
+        raw_qty = position_size(eq, bar.close, signal.stop, risk_pct=self.risk_pct)
+        if raw_qty <= 0:
             return
+
+        # Phase 4: optionally adjust qty by LLM conviction multiplier. Always
+        # bounded to [0.3 * raw, 1.5 * raw] — LLM cannot zero-out a trade.
+        # On any error/timeout the wrapper returns multiplier=1.0 so we
+        # degrade gracefully to rule-based sizing.
+        conviction = None
+        if self._conviction_evaluator is not None:
+            ctx = (
+                self._conviction_context_fn(signal, bar)
+                if self._conviction_context_fn
+                else {}
+            )
+            conviction = self._conviction_evaluator.evaluate(
+                signal,
+                entry_price=bar.close,
+                **ctx,
+            )
+            qty = raw_qty * conviction.multiplier
+        else:
+            qty = raw_qty
         notional = qty * bar.close
         broker_side = "buy" if direction == "long" else "sell"
 
@@ -208,7 +237,19 @@ class Executor:
                 quantity=qty,
                 price=bar.close,
                 notional=notional,
-                metadata={"stop": signal.stop, "target": signal.target, "direction": direction},
+                metadata={
+                    "stop": signal.stop,
+                    "target": signal.target,
+                    "direction": direction,
+                    # A/B logging for Phase 4: persist both raw + adjusted qty
+                    # and the multiplier so analyzer can compute counterfactual
+                    # P&L for the no-LLM case.
+                    "raw_qty": raw_qty,
+                    "conviction_mult": conviction.multiplier if conviction else None,
+                    "conviction_reasoning": conviction.reasoning if conviction else None,
+                    "conviction_cost_usd": conviction.cost_usd if conviction else None,
+                    "conviction_fallback": conviction.fallback if conviction else None,
+                },
             )
         )
         fill = self.broker.place(order, mark_price=bar.close, timestamp_ms=bar.timestamp_ms)

@@ -286,6 +286,50 @@ _DEFAULTS: dict[str, str] = {
 }
 
 
+def _build_conviction_context_fn(log, strategy_id: str):
+    """Returns a function(signal, bar) → context dict for ConvictionMultiplier.
+    Lazily pulls news + per-strategy stats so the LLM has fresh context on
+    every entry. Defined here (not in Executor) to keep execution layer free
+    of UI/news imports."""
+    from data.news_store import NewsStore  # noqa: PLC0415
+    from features.regime import detect_regime  # noqa: PLC0415
+
+    news_store = NewsStore()
+
+    def _ctx_fn(signal, bar) -> dict:
+        from data.store import bars_path, load_bars  # noqa: PLC0415
+        from features.compute import bars_to_df  # noqa: PLC0415
+
+        ctx: dict = {}
+        # News
+        try:
+            ctx["news_summary"] = news_store.summary(signal.symbol, window_h=24)
+            recent = news_store.recent(signal.symbol, window_h=24, limit=5)
+            ctx["news_headlines"] = [r["headline"] for r in recent]
+        except Exception:  # noqa: BLE001
+            ctx["news_summary"] = None
+            ctx["news_headlines"] = []
+        # Regime from 1h bars
+        try:
+            bars_p = bars_path("binance", signal.symbol, "1h")
+            if bars_p.exists():
+                df = bars_to_df(load_bars(bars_p))
+                if len(df) >= 200:
+                    regimes = detect_regime(df, trend_period=200)
+                    ctx["regime"] = str(regimes["trend"].iloc[-1])
+        except Exception:  # noqa: BLE001
+            ctx["regime"] = None
+        # Reward/risk ratio
+        if signal.stop is not None and signal.target is not None and bar.close > signal.stop:
+            risk = bar.close - signal.stop if signal.side == "buy" else signal.stop - bar.close
+            reward = signal.target - bar.close if signal.side == "buy" else bar.close - signal.target
+            if risk > 0:
+                ctx["rr_ratio"] = reward / risk
+        return ctx
+
+    return _ctx_fn
+
+
 def _env(key: str) -> str:
     return os.environ.get(key, _DEFAULTS[key])
 
@@ -420,6 +464,23 @@ def build_from_env() -> tuple[LiveLoop, dict[str, str]]:
         from risk.caps import paper_caps  # noqa: PLC0415
 
         caps = paper_caps(initial_cash_usd=initial_cash)
+    # Optional Phase 4 LLM conviction multiplier. Activated by
+    # TRADERBOT_USE_CONVICTION=true (requires ANTHROPIC_API_KEY). Wraps every
+    # entry signal in a sizing multiplier between 0.3 and 1.5 based on news
+    # sentiment + regime + recent strategy P&L. Never vetoes.
+    use_conviction = os.environ.get("TRADERBOT_USE_CONVICTION", "").strip().lower() == "true"
+    conviction_evaluator = None
+    conviction_context_fn = None
+    if use_conviction:
+        from agents.conviction import ConvictionMultiplier  # noqa: PLC0415
+
+        if not ConvictionMultiplier.is_configured():
+            raise RuntimeError(
+                "TRADERBOT_USE_CONVICTION=true but ANTHROPIC_API_KEY is not set."
+            )
+        conviction_evaluator = ConvictionMultiplier()
+        conviction_context_fn = _build_conviction_context_fn(log, strategy_entry.id)
+
     executor = Executor(
         broker=broker,
         log=log,
@@ -428,6 +489,8 @@ def build_from_env() -> tuple[LiveLoop, dict[str, str]]:
         caps=caps,
         risk_pct=risk_pct,
         trade_mode=trade_mode,
+        conviction_evaluator=conviction_evaluator,
+        conviction_context_fn=conviction_context_fn,
     )
 
     # Auto-backup the decision log at every loop start. Cheap (file copy of a
